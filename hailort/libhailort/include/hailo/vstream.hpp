@@ -310,7 +310,7 @@ protected:
     std::shared_ptr<OutputVStreamInternal> m_vstream;
 
     friend class VStreamsBuilderUtils;
-    friend class VdmaConfigNetworkGroup;
+    friend class VDeviceNetworkGroup;
 };
 
 /*! Contains the virtual streams creation functions */

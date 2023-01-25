@@ -176,6 +176,19 @@ hailo_status HailoSendImpl::write_to_vstreams(void *buf, size_t size)
     return HAILO_SUCCESS;
 }
 
+uint32_t get_height_by_order(const hailo_vstream_info_t &input_vstream_info)
+{
+    auto original_height = input_vstream_info.shape.height;
+    switch (input_vstream_info.format.order) {
+    case HAILO_FORMAT_ORDER_NV12:
+    case HAILO_FORMAT_ORDER_NV21:
+        return original_height * 2;
+    default:
+        break;
+    }
+    return original_height;
+}
+
 GstCaps *HailoSendImpl::get_caps(GstBaseTransform */*trans*/, GstPadDirection /*direction*/, GstCaps *caps, GstCaps */*filter*/)
 {
     GST_DEBUG_OBJECT(m_element, "transform_caps");
@@ -192,6 +205,7 @@ GstCaps *HailoSendImpl::get_caps(GstBaseTransform */*trans*/, GstPadDirection /*
     
     const gchar *format = nullptr;
     switch (m_input_vstream_infos[0].format.order) {
+    case HAILO_FORMAT_ORDER_RGB4:
     case HAILO_FORMAT_ORDER_NHWC:
         if (m_input_vstream_infos[0].shape.features == RGBA_FEATURES_SIZE) {
             format = "RGBA";
@@ -232,10 +246,10 @@ GstCaps *HailoSendImpl::get_caps(GstBaseTransform */*trans*/, GstPadDirection /*
 
     /* filter against set allowed caps on the pad */
     GstCaps *new_caps = gst_caps_new_simple("video/x-raw",
-                               "format", G_TYPE_STRING, format,
-                               "width", G_TYPE_INT, m_input_vstream_infos[0].shape.width,
-                               "height", G_TYPE_INT, m_input_vstream_infos[0].shape.height,
-                               NULL);
+                                            "format", G_TYPE_STRING, format,
+                                            "width", G_TYPE_INT, m_input_vstream_infos[0].shape.width,
+                                            "height", G_TYPE_INT, get_height_by_order(m_input_vstream_infos[0]),
+                                            NULL);
     return gst_caps_intersect(caps, new_caps);
 }
 

@@ -3,8 +3,8 @@
  * @brief Implements MemorySource over HailoRT driver, reads/write all interfaces.
  */
 
-#ifndef _HW_DEBUG_MEMORY_HPP_
-#define _HW_DEBUG_MEMORY_HPP_
+#ifndef _HW_DEBUG_DRIVER_MEMORY_HPP_
+#define _HW_DEBUG_DRIVER_MEMORY_HPP_
 
 #include "memory_commands.hpp"
 #include "os/hailort_driver.hpp"
@@ -29,6 +29,11 @@ class VdmaMemorySource : public DriverMemorySource {
 public:
     VdmaMemorySource(std::shared_ptr<HailoRTDriver> driver, MemoryType memory_type);
     size_t total_size() const override;
+};
+
+class DramDmaEngineMemorySource : public DriverMemorySource {
+public:
+    DramDmaEngineMemorySource(std::shared_ptr<HailoRTDriver> driver, MemoryType memory_type);
 };
 
 #endif /* _HW_DEBUG_DRIVER_MEMORY_HPP_ */

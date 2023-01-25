@@ -25,6 +25,7 @@ constexpr size_t NETWORK_NAME_WIDTH = 40;
 constexpr size_t STREAM_NAME_WIDTH = 60;
 constexpr size_t ACTIVE_TIME_WIDTH = 25;
 constexpr size_t NUMBER_WIDTH = 15;
+constexpr size_t TERMINAL_DEFAULT_WIDTH = 80;
 constexpr size_t LINE_LENGTH = 125;
 constexpr std::chrono::milliseconds EPSILON_TIME(500);
 
@@ -123,7 +124,10 @@ Expected<uint16_t> get_terminal_line_width()
 {
     struct winsize w;
     int ret = ioctl(0, TIOCGWINSZ, &w);
-    CHECK_AS_EXPECTED(ret == 0, HAILO_INTERNAL_FAILURE,"Failed to get_terminal_line_width, with errno: {}", errno);
+    if (ret != 0) {
+        LOGGER__DEBUG("Failed to get_terminal_line_width, with errno: {}, using default value: {}", errno);
+        return TERMINAL_DEFAULT_WIDTH;
+    }
 
     uint16_t terminal_line_width = w.ws_col;
     return terminal_line_width;

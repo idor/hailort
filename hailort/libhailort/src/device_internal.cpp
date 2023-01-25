@@ -45,10 +45,7 @@ Expected<ConfiguredNetworkGroupVector> DeviceBase::configure(Hef &hef,
     auto status = check_hef_is_compatible(hef);
     CHECK_SUCCESS_AS_EXPECTED(status);
 
-    auto context_switch_manager = get_config_manager();
-    CHECK_EXPECTED(context_switch_manager);
-
-    auto network_groups = context_switch_manager->get().add_hef(hef, configure_params);
+    auto network_groups = add_hef(hef, configure_params);
     CHECK_EXPECTED(network_groups);
 
     auto elapsed_time_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start_time).count();

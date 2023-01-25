@@ -151,8 +151,8 @@ static void gst_hailonet_class_init(GstHailoNetClass *klass)
             "Gets values from the enum GstHailoSchedulingAlgorithms. "
             "Using Model Scheduler algorithm different than HAILO_SCHEDULING_ALGORITHM_NONE, excludes the property 'is-active'. "
             "When using the same VDevice across multiple hailonets, all should have the same 'scheduling-algorithm'. "
-            "Currently only supported with 1 device (e.g. device-count=1).",
-            GST_TYPE_SCHEDULING_ALGORITHM, HAILO_SCHEDULING_ALGORITHM_NONE,
+            "To run with more than one device, set env variable 'HAILO_ENABLE_MULTI_DEVICE_SCHEDULER' to 1.",
+            GST_TYPE_SCHEDULING_ALGORITHM, HAILO_SCHEDULING_ALGORITHM_ROUND_ROBIN,
         (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
     g_object_class_install_property(gobject_class, PROP_SCHEDULER_TIMEOUT_MS,
         g_param_spec_uint("scheduler-timeout-ms", "Timeout for for scheduler in ms", "The maximum time period that may pass before getting run time from the scheduler,"
@@ -174,13 +174,19 @@ static void gst_hailonet_class_init(GstHailoNetClass *klass)
     );
 }
 
+std::string create_name(std::string prefix, uint32_t id)
+{
+    return prefix + std::to_string(id);
+}
+
 Expected<std::unique_ptr<HailoNetImpl>> HailoNetImpl::create(GstHailoNet *element)
 {
     if (nullptr == element) {
         return make_unexpected(HAILO_INVALID_ARGUMENT);
     }
 
-    GstElement *hailosend = gst_element_factory_make("hailosend", "hailosend");
+    auto hailosend_name = create_name("hailosend", HailoNetImpl::m_hailonet_count);
+    GstElement *hailosend = gst_element_factory_make("hailosend", hailosend_name.c_str());
     if (nullptr == hailosend) {
         GST_ELEMENT_ERROR(element, RESOURCE, FAILED, ("Failed creating hailosend element in bin!"), (NULL));
         return make_unexpected(HAILO_INTERNAL_FAILURE);
@@ -188,7 +194,8 @@ Expected<std::unique_ptr<HailoNetImpl>> HailoNetImpl::create(GstHailoNet *elemen
 
     g_object_set(hailosend, "qos", FALSE, NULL);
 
-    GstElement *queue = gst_element_factory_make("queue", "hailo_infer_q_0");
+    auto hailoqueue_name = create_name("hailoqueue", HailoNetImpl::m_hailonet_count);
+    GstElement *queue = gst_element_factory_make("queue", hailoqueue_name.c_str());
     if (nullptr == queue) {
         GST_ELEMENT_ERROR(element, RESOURCE, FAILED, ("Failed creating queue element in bin!"), (NULL));
         gst_object_unref(hailosend);
@@ -201,7 +208,8 @@ Expected<std::unique_ptr<HailoNetImpl>> HailoNetImpl::create(GstHailoNet *elemen
     g_signal_connect(queue, "overrun", G_CALLBACK(gst_hailonet_inner_queue_overrun_callback), nullptr);
     g_signal_connect(queue, "underrun", G_CALLBACK(gst_hailonet_inner_queue_underrun_callback), nullptr);
 
-    GstElement *hailorecv = gst_element_factory_make("hailorecv", "hailorecv");
+    auto hailorecv_name = create_name("hailorecv", HailoNetImpl::m_hailonet_count);
+    GstElement *hailorecv = gst_element_factory_make("hailorecv", hailorecv_name.c_str());
     if (nullptr == hailorecv) {
         GST_ELEMENT_ERROR(element, RESOURCE, FAILED, ("Failed creating hailorecv element in bin!"), (NULL));
         gst_object_unref(hailosend);
@@ -379,7 +387,7 @@ void HailoNetImpl::set_property(GObject *object, guint property_id, const GValue
     {
         gboolean new_is_active = g_value_get_boolean(value);
 
-        if (HAILO_SCHEDULING_ALGORITHM_NONE != m_props.m_scheduling_algorithm.get()) {
+        if (m_props.m_scheduling_algorithm.was_changed() && (HAILO_SCHEDULING_ALGORITHM_NONE != m_props.m_scheduling_algorithm.get())) {
             g_error("scheduling-algorithm different than HAILO_SCHEDULING_ALGORITHM_NONE in combination with 'is-active' is not supported.");
             break;
         }
@@ -561,7 +569,7 @@ hailo_status HailoNetImpl::set_hef()
     GST_CHECK(1 == input_vstream_infos->size(), HAILO_INVALID_OPERATION, m_element, RESOURCE, "hailonet element supports only HEFs with one input for now!");
 
     auto input_vstream_info = input_vstream_infos.value()[0];
-    GST_HAILOSEND(m_hailosend)->impl->set_input_vstream_infos(std::move(input_vstream_infos.release()));
+    GST_HAILOSEND(m_hailosend)->impl->set_input_vstream_infos(input_vstream_infos.release());
     GST_HAILOSEND(m_hailosend)->impl->set_batch_size(m_props.m_batch_size.get());
 
     GstBufferPool *pool = gst_buffer_pool_new();

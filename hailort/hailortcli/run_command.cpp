@@ -19,6 +19,7 @@
 #endif
 #include "common.hpp"
 
+#include "common/string_utils.hpp"
 #include "common/file_utils.hpp"
 #include "common/async_thread.hpp"
 #include "common/barrier.hpp"
@@ -29,8 +30,11 @@
 #include "hailo/vstream.hpp"
 #include "hailo/vdevice.hpp"
 
+#include "spdlog/fmt/fmt.h"
+
 #include <vector>
 #include <algorithm>
+#include <regex>
 #include <signal.h>
 #include <condition_variable>
 std::condition_variable wait_for_exit_cv;
@@ -48,6 +52,7 @@ constexpr std::chrono::milliseconds TIME_TO_WAIT_FOR_CONFIG(300);
 constexpr std::chrono::milliseconds TIME_TO_WAIT_FOR_CONFIG(30000);
 #define HAILORTCLI_DEFAULT_VSTREAM_TIMEOUT_MS (HAILO_DEFAULT_VSTREAM_TIMEOUT_MS * 100)
 #endif /* ifndef HAILO_EMULATOR */
+static const char *RUNTIME_DATA_OUTPUT_PATH_HEF_PLACE_HOLDER = "<hef>";
 static const char *RUNTIME_DATA_BATCH_TO_MEASURE_OPT_LAST = "last";
 static const char *RUNTIME_DATA_BATCH_TO_MEASURE_OPT_DEFAULT = "2";
 
@@ -89,6 +94,16 @@ bool use_batch_to_measure_opt(const inference_runner_params& params)
 {
     return params.runtime_data.collect_runtime_data &&
         (params.runtime_data.batch_to_measure_str != RUNTIME_DATA_BATCH_TO_MEASURE_OPT_LAST);
+}
+
+// We assume that hef_place_holder_regex is valid
+std::string format_runtime_data_output_path(const std::string &base_output_path, const std::string &hef_path,
+    const std::string &hef_place_holder_regex = RUNTIME_DATA_OUTPUT_PATH_HEF_PLACE_HOLDER,
+    const std::string &hef_suffix = ".hef")
+{
+    const auto hef_basename = Filesystem::basename(hef_path);
+    const auto hef_no_suffix = Filesystem::remove_suffix(hef_basename, hef_suffix);
+    return std::regex_replace(base_output_path, std::regex(hef_place_holder_regex), hef_no_suffix);
 }
 
 static void add_run_command_params(CLI::App *run_subcommand, inference_runner_params& params)
@@ -210,15 +225,14 @@ static void add_run_command_params(CLI::App *run_subcommand, inference_runner_pa
     auto *collect_runtime_data_subcommand = run_subcommand->add_subcommand("collect-runtime-data",
         "Collect runtime data to be used by the Profiler");
     static const char *JSON_SUFFIX = ".json";
-    collect_runtime_data_subcommand->add_option("--output-path",
-        params.runtime_data.runtime_data_output_path, "Runtime data output file path")
-        ->default_val("runtime_data.json")
+    collect_runtime_data_subcommand->add_option("--output-path", params.runtime_data.runtime_data_output_path,
+        fmt::format("Runtime data output file path\n'{}' will be replaced with the current running hef",
+            RUNTIME_DATA_OUTPUT_PATH_HEF_PLACE_HOLDER))
+        ->default_val(fmt::format("runtime_data_{}.json", RUNTIME_DATA_OUTPUT_PATH_HEF_PLACE_HOLDER))
         ->check(FileSuffixValidator(JSON_SUFFIX));
-    std::stringstream batch_to_measure_help;
-    batch_to_measure_help << "Batch to be measured (non-negative integer)" << std::endl
-        << "The last batch will be measured if '" << RUNTIME_DATA_BATCH_TO_MEASURE_OPT_LAST << "' is provided";
-    collect_runtime_data_subcommand->add_option("--batch-to-measure",
-        params.runtime_data.batch_to_measure_str, batch_to_measure_help.str())
+    collect_runtime_data_subcommand->add_option("--batch-to-measure", params.runtime_data.batch_to_measure_str,
+        fmt::format("Batch to be measured (non-negative integer)\nThe last batch will be measured if '{}' is provided",
+            RUNTIME_DATA_BATCH_TO_MEASURE_OPT_LAST))
         ->default_val(RUNTIME_DATA_BATCH_TO_MEASURE_OPT_DEFAULT)
         ->check(UintOrKeywordValidator(RUNTIME_DATA_BATCH_TO_MEASURE_OPT_LAST));
     collect_runtime_data_subcommand->parse_complete_callback([&params]() {
@@ -391,7 +405,7 @@ hailo_status send_loop(const inference_runner_params &params, SendObject &send_o
             auto status = send_object.write(MemoryView(
                 const_cast<uint8_t*>(input_buffer->data()) + offset,
                 send_object.get_frame_size()));
-            if (HAILO_STREAM_INTERNAL_ABORT == status) {
+            if (HAILO_STREAM_ABORTED_BY_USER == status) {
                 LOGGER__DEBUG("Input stream was aborted!");
                 return status;
             }
@@ -407,7 +421,7 @@ hailo_status send_loop(const inference_runner_params &params, SendObject &send_o
 template<typename RecvObject>
 hailo_status recv_loop(const inference_runner_params &params, RecvObject &recv_object,
     std::shared_ptr<NetworkProgressBar> progress_bar, Barrier &barrier, LatencyMeter &overall_latency_meter,
-    std::map<std::string, BufferPtr> &dst_data, std::atomic_size_t &received_frames_count, uint32_t output_idx, bool show_progress,
+    std::map<std::string, BufferPtr> &dst_data, std::atomic_size_t &received_frames_count, bool show_progress,
     uint16_t batch_size)
 {
     uint32_t num_of_batches = ((0 == params.time_to_run) ? (params.frames_count / batch_size) : UINT32_MAX);
@@ -416,13 +430,14 @@ hailo_status recv_loop(const inference_runner_params &params, RecvObject &recv_o
             barrier.arrive_and_wait();
         }
         for (int j = 0; j < batch_size; j++) {
-            auto status = recv_object.read(MemoryView(*dst_data[recv_object.name()]));
+            auto dst_buffer = MemoryView(*dst_data[recv_object.name()]);
+            auto status = recv_object.read(dst_buffer);
             if (HAILO_SUCCESS != status) {
                 return status;
             }
 
             if (params.measure_overall_latency) {
-                overall_latency_meter.add_end_sample(output_idx, std::chrono::steady_clock::now().time_since_epoch());
+                overall_latency_meter.add_end_sample(recv_object.name(), std::chrono::steady_clock::now().time_since_epoch());
             }
 
             if (show_progress && params.show_progress) {
@@ -629,12 +644,12 @@ static hailo_status run_streaming_impl(std::shared_ptr<ConfiguredNetworkGroup> c
     if (params.measure_overall_latency) {
         CHECK((send_objects.size() == 1), HAILO_INVALID_OPERATION, "Overall latency measurement not support multiple inputs network");
     }
-    std::set<uint32_t> output_channels;
-    for (uint32_t output_channel_index = 0; output_channel_index < recv_objects.size(); output_channel_index++) {
-        output_channels.insert(output_channel_index);
+    std::set<std::string> output_names;
+    for (auto &output : recv_objects) {
+        output_names.insert(output.get().name());
     }
 
-    LatencyMeter overall_latency_meter(output_channels, OVERALL_LATENCY_TIMESTAMPS_LIST_LENGTH);
+    LatencyMeter overall_latency_meter(output_names, OVERALL_LATENCY_TIMESTAMPS_LIST_LENGTH);
     Barrier barrier(send_objects.size() + recv_objects.size());
 
     std::vector<std::atomic_size_t> frames_recieved_per_output(recv_objects.size());
@@ -657,9 +672,9 @@ static hailo_status run_streaming_impl(std::shared_ptr<ConfiguredNetworkGroup> c
         auto &frames_recieved = frames_recieved_per_output[output_index];
         results.emplace_back(std::make_unique<AsyncThread<hailo_status>>(
             [network_progress_bar, params, &recv_object, &output_buffers, first, &barrier, &overall_latency_meter,
-            &frames_recieved, output_index, batch_size]() {
+            &frames_recieved, batch_size]() {
                 auto res = recv_loop(params, recv_object.get(), network_progress_bar, barrier, overall_latency_meter,
-                    output_buffers, frames_recieved, output_index, first, batch_size);
+                    output_buffers, frames_recieved, first, batch_size);
                 if (HAILO_SUCCESS != res) {
                     barrier.terminate();
                 }
@@ -694,7 +709,7 @@ static hailo_status run_streaming_impl(std::shared_ptr<ConfiguredNetworkGroup> c
     auto error_status = HAILO_SUCCESS;
     for (auto& result : results) {
         auto status = result->get();
-        if (HAILO_STREAM_INTERNAL_ABORT == status) {
+        if (HAILO_STREAM_ABORTED_BY_USER == status) {
             continue;
         }
         if (HAILO_SUCCESS != status) {
@@ -1188,8 +1203,10 @@ Expected<InferResult> run_command_hef_single_device(const inference_runner_param
     }
 
     if (params.runtime_data.collect_runtime_data) {
-        DownloadActionListCommand::execute(*device, params.runtime_data.runtime_data_output_path,
-            network_group_list.value(), params.hef_path);
+        const auto runtime_data_output_path = format_runtime_data_output_path(
+            params.runtime_data.runtime_data_output_path, params.hef_path);
+        DownloadActionListCommand::execute(*device, runtime_data_output_path, network_group_list.value(),
+            params.hef_path);
     }
 
 #endif
@@ -1331,8 +1348,10 @@ Expected<InferResult> run_command_hef_vdevice(const inference_runner_params &par
         physical_devices = expected_physical_devices.value();
     }
 
-    // VDevice always has Pcie devices
-    auto configure_params = get_configure_params(params, hef.value(), hailo_stream_interface_t::HAILO_STREAM_INTERFACE_PCIE);
+    auto interface = vdevice.value()->get_default_streams_interface();
+    CHECK_EXPECTED(interface, "Failed to get default streams interface");
+
+    auto configure_params = get_configure_params(params, hef.value(), *interface);
     CHECK_EXPECTED(configure_params);
 
     auto network_group_list = vdevice.value()->configure(hef.value(), configure_params.value());
@@ -1365,8 +1384,10 @@ Expected<InferResult> run_command_hef_vdevice(const inference_runner_params &par
         }
 
         if (params.runtime_data.collect_runtime_data) {
-            DownloadActionListCommand::execute(device.get(), params.runtime_data.runtime_data_output_path,
-                network_group_list.value(), params.hef_path);
+            const auto runtime_data_output_path = format_runtime_data_output_path(
+                params.runtime_data.runtime_data_output_path, params.hef_path);
+            DownloadActionListCommand::execute(device.get(), runtime_data_output_path, network_group_list.value(),
+                params.hef_path);
         }
     }
 #endif

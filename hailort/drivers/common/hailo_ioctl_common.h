@@ -6,6 +6,9 @@
 #ifndef _HAILO_IOCTL_COMMON_H_
 #define _HAILO_IOCTL_COMMON_H_
 
+
+#define DESCRIPTORS_IN_BUFFER(buffer_size, desc_page_size) (((buffer_size) + (desc_page_size) - 1) / (desc_page_size))
+
 // This value is not easily changeable.
 // For example: the channel interrupts ioctls assume we have up to 32 channels
 #define MAX_VDMA_CHANNELS_PER_ENGINE    (32)
@@ -84,6 +87,11 @@ struct hailo_channel_interrupt_timestamp {
     uint16_t desc_num_processed;
 };
 
+typedef struct {
+    uint16_t is_buffer_in_use;
+    uint16_t buffer_len;
+} hailo_d2h_buffer_details_t;
+
 // This struct is the same as `enum dma_data_direction` (defined in linux/dma-direction)
 enum hailo_dma_data_direction {
     HAILO_DMA_BIDIRECTIONAL = 0,
@@ -145,6 +153,7 @@ struct hailo_desc_list_bind_vdma_buffer_params {
     uintptr_t desc_handle;      // in
     uint16_t desc_page_size;    // in
     uint8_t channel_index;      // in
+    size_t offset;              // in
 };
 
 /* structure used in ioctl HAILO_VDMA_CHANNEL_ENABLE */

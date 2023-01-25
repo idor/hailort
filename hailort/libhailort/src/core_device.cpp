@@ -29,7 +29,7 @@ Expected<std::unique_ptr<CoreDevice>> CoreDevice::create()
     auto driver = HailoRTDriver::create(CORE_DRIVER_PATH);
     CHECK_EXPECTED(driver, "Failed to initialize HailoRTDriver");
 
-    auto device = std::unique_ptr<CoreDevice>(new (std::nothrow) CoreDevice(driver.release(), status));
+    auto device = std::unique_ptr<CoreDevice>(new (std::nothrow) CoreDevice(driver.release(), status, DEVICE_ID));
     CHECK_AS_EXPECTED((nullptr != device), HAILO_OUT_OF_HOST_MEMORY);
     CHECK_SUCCESS_AS_EXPECTED(status, "Failed creating CoreDevice");
 
@@ -37,8 +37,8 @@ Expected<std::unique_ptr<CoreDevice>> CoreDevice::create()
 }
 
 
-CoreDevice::CoreDevice(HailoRTDriver &&driver, hailo_status &status) : 
-    VdmaDevice::VdmaDevice(std::move(driver), Device::Type::CORE)
+CoreDevice::CoreDevice(HailoRTDriver &&driver, hailo_status &status, const std::string &device_id) : 
+    VdmaDevice::VdmaDevice(std::move(driver), Device::Type::CORE, device_id)
 {
     status = update_fw_state();
     if (HAILO_SUCCESS != status) {
@@ -48,8 +48,6 @@ CoreDevice::CoreDevice(HailoRTDriver &&driver, hailo_status &status) :
 
     status = HAILO_SUCCESS;
 }
-
-CoreDevice::~CoreDevice() {}
 
 Expected<hailo_device_architecture_t> CoreDevice::get_architecture() const {
     return Expected<hailo_device_architecture_t>(m_device_architecture);

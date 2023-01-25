@@ -11,9 +11,11 @@
 #include "common/logger_macros.hpp"
 #include "common/utils.hpp"
 
+#include <iostream>
 #include <errno.h>
 #include <sys/stat.h>
 #include <sys/file.h>
+#include <pwd.h>
 
 namespace hailort
 {
@@ -161,6 +163,54 @@ hailo_status Filesystem::create_directory(const std::string &dir_path)
     auto ret_val = mkdir(dir_path.c_str(), S_IRWXU | S_IRWXG | S_IRWXO );
     CHECK((ret_val == 0) || (errno == EEXIST), HAILO_FILE_OPERATION_FAILURE, "Failed to create directory {}", dir_path);
     return HAILO_SUCCESS;
+}
+
+Expected<std::string> Filesystem::get_current_dir()
+{
+    char cwd[PATH_MAX];
+    auto ret_val = getcwd(cwd, sizeof(cwd));
+    CHECK_AS_EXPECTED(nullptr != ret_val, HAILO_FILE_OPERATION_FAILURE, "Failed to get current directory path with errno {}", errno);
+
+    return std::string(cwd);
+}
+
+std::string Filesystem::get_home_directory()
+{
+    const char *homedir = getenv("HOME");
+    if (NULL == homedir) {
+        homedir = getpwuid(getuid())->pw_dir;
+    }
+
+#ifdef __QNX__
+    const std::string root_dir = "/";
+    std::string homedir_str = std::string(homedir);
+    if (homedir_str == root_dir) {
+        return homedir_str + "home";
+    }
+#endif
+
+    return homedir;
+}
+
+bool Filesystem::is_path_accesible(const std::string &path)
+{
+    auto ret = access(path.c_str(), W_OK);
+    if (ret == 0) {
+        return true;
+    }
+    else if (EACCES == errno) {
+        return false;
+    } else {
+        std::cerr << "Failed checking path " << path << " access permissions, errno = " << errno << std::endl;
+        return false;
+    }
+}
+
+bool Filesystem::does_file_exists(const std::string &path)
+{
+    // From https://stackoverflow.com/a/12774387
+    struct stat buffer;
+    return (0 == stat(path.c_str(), &buffer));
 }
 
 Expected<TempFile> TempFile::create(const std::string &file_name, const std::string &file_directory)

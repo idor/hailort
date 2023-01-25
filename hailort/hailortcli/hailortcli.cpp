@@ -8,6 +8,7 @@
  *
  * HailoRT command line interface.
  **/
+#include "run2/run2_command.hpp"
 #include "hailortcli.hpp"
 #include "scan_command.hpp"
 #include "power_measurement_command.hpp"
@@ -136,13 +137,6 @@ void add_device_options(CLI::App *app, hailo_device_params &device_params, bool 
     auto *ip_option = group->add_option("--ip", device_params.device_ids, "IP address of the target")
         ->check(CLI::ValidIPV4);
 
-    auto *device_type_option = group->add_option("-d,--device-type,--target", "ignored.");
-
-    std::vector<DeprecationActionPtr> actions{
-        std::make_shared<OptionDeprecation>(device_type_option),
-    };
-    hailo_deprecate_options(app, actions, false);
-
     group->parse_complete_callback([&device_params, device_id_option, pcie_bdf_option, ip_option, support_asterisk]()
     {
         // Check that only one device id param is given
@@ -190,18 +184,10 @@ class HailoRTCLI : public ContainerCommand {
 public:
     HailoRTCLI(CLI::App *app) : ContainerCommand(app)
     {
-
-        m_app->add_flag_callback("-v,--version",
-            [] () {
-                std::cout << "HailoRT-CLI version " <<
-                    HAILORT_MAJOR_VERSION << "." << HAILORT_MINOR_VERSION << "." << HAILORT_REVISION_VERSION << std::endl;
-                // throw CLI::Success to stop parsing and not failing require_subcommand(1) we set earlier
-                throw (CLI::Success{});
-            },
-            "Print program version and exit"
-        );
+        m_app->set_version_flag("-v,--version", fmt::format("HailoRT-CLI version {}.{}.{}", HAILORT_MAJOR_VERSION, HAILORT_MINOR_VERSION, HAILORT_REVISION_VERSION));
 
         add_subcommand<RunCommand>();
+        add_subcommand<Run2Command>();
         add_subcommand<ScanSubcommand>();
         add_subcommand<BenchmarkCommand>();
         add_subcommand<PowerMeasurementSubcommand>();

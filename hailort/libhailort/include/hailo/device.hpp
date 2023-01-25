@@ -443,6 +443,15 @@ public:
     hailo_status test_chip_memories();
 
     /**
+     *  Set  chip sleep state..
+     * @note This is an advanced API. Please be advised not to use this API, unless supported by Hailo.
+     *
+     * @param[in]     sleep_state    The requested sleep state of the chip
+     * @return Upon success, returns ::HAILO_SUCCESS. Otherwise, returns a ::hailo_status error.
+     */
+    hailo_status set_sleep_state(hailo_sleep_state_t sleep_state);
+
+    /**
      *  Update the firmware of a Hailo device.
      * 
      * @param[in] firmware_binary       The firmware code to be updated to the device.
@@ -652,6 +661,12 @@ public:
         uint8_t context_index, uint32_t *base_address, uint32_t *batch_counter, uint16_t max_size = 10000);
     // The batch configured is reset between network groups
     hailo_status set_context_action_list_timestamp_batch(uint16_t batch_index);
+    hailo_status set_context_switch_breakpoint(uint8_t breakpoint_id, bool break_at_any_network_group_index,
+        uint8_t network_group_index, bool break_at_any_batch_index, uint16_t batch_index,  bool break_at_any_context_index,
+        uint8_t context_index, bool break_at_any_action_index, uint16_t action_index);
+    hailo_status continue_context_switch_breakpoint(uint8_t breakpoint_id);
+    hailo_status clear_context_switch_breakpoint(uint8_t breakpoint_id);
+    Expected<uint8_t> get_context_switch_breakpoint_status(uint8_t breakpoint_id);
 
     virtual ~Device() = default;
     Device(const Device &) = delete;

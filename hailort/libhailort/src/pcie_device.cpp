@@ -59,11 +59,15 @@ Expected<std::unique_ptr<PcieDevice>> PcieDevice::create(const hailo_pcie_device
     auto device_info = find_device_info(pcie_device_info);
     CHECK_EXPECTED(device_info);
 
+    auto pcie_device_info_str = pcie_device_info_to_string(pcie_device_info);
+    CHECK_EXPECTED(pcie_device_info_str);
+
     auto driver = HailoRTDriver::create(device_info->dev_path);
     CHECK_EXPECTED(driver);
 
     hailo_status status = HAILO_UNINITIALIZED;
-    auto device = std::unique_ptr<PcieDevice>(new (std::nothrow) PcieDevice(driver.release(), pcie_device_info, status));
+    auto device = std::unique_ptr<PcieDevice>(new (std::nothrow) PcieDevice(driver.release(), pcie_device_info, status,
+        pcie_device_info_str.release()));
     CHECK_AS_EXPECTED((nullptr != device), HAILO_OUT_OF_HOST_MEMORY);
     CHECK_SUCCESS_AS_EXPECTED(status, "Failed creating PcieDevice");
     return device;
@@ -123,9 +127,10 @@ Expected<std::string> PcieDevice::pcie_device_info_to_string(const hailo_pcie_de
     return std::string(device_string);
 }
 
-PcieDevice::PcieDevice(HailoRTDriver &&driver, const hailo_pcie_device_info_t &device_info, hailo_status &status) :
-    VdmaDevice::VdmaDevice(std::move(driver), Device::Type::PCIE),
-    m_device_info(device_info)
+PcieDevice::PcieDevice(HailoRTDriver &&driver, const hailo_pcie_device_info_t &device_info, hailo_status &status,
+    const std::string &device_id) :
+        VdmaDevice::VdmaDevice(std::move(driver), Device::Type::PCIE, device_id),
+        m_device_info(device_info)
 {
     if (driver.is_fw_loaded()) {
         status = update_fw_state();
@@ -138,25 +143,9 @@ PcieDevice::PcieDevice(HailoRTDriver &&driver, const hailo_pcie_device_info_t &d
         m_is_control_version_supported = false;
     }
 
-    auto message = pcie_device_info_to_string(device_info);
-    if (HAILO_SUCCESS != message.status()) {
-        status = message.status();
-        LOGGER__ERROR("pcie_device_info_to_string() failed with status {}", status);
-        return;
-    }
-    m_device_id = message.release();
-
-    this->activate_notifications(m_device_id);
+    m_device_id = device_id;
 
     status = HAILO_SUCCESS;
-}
-
-PcieDevice::~PcieDevice()
-{
-    auto status = stop_notification_fetch_thread();
-    if (HAILO_SUCCESS != status) {
-        LOGGER__WARNING("Stopping notification thread ungracefully");
-    }
 }
 
 void PcieDevice::set_is_control_version_supported(bool value)

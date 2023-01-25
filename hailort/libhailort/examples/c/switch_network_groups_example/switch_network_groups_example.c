@@ -21,6 +21,9 @@
 #define HEF_COUNT (2)
 #define DEVICE_COUNT (1)
 
+#define SCHEDULER_TIMEOUT_MS (100)
+#define SCHEDULER_THRESHOLD (3)
+
 typedef struct write_thread_args_t {
     hailo_input_vstream input_vstream;
     uint8_t *src_data;
@@ -207,6 +210,15 @@ int main()
         REQUIRE_SUCCESS(status, l_release_hef, "Failed configuring vdevcie");
         REQUIRE_ACTION(network_groups_size == 1, status = HAILO_INVALID_ARGUMENT, l_release_hef, 
             "Unexpected network group size");
+
+        // Set scheduler's timeout and threshold for the first network group, in order to give priority to the second network group
+        if (0 == hef_index) {
+            status =  hailo_set_scheduler_timeout(network_groups[hef_index], SCHEDULER_TIMEOUT_MS, NULL);
+            REQUIRE_SUCCESS(status, l_release_hef, "Failed setting scheduler timeout");
+
+            status =  hailo_set_scheduler_threshold(network_groups[hef_index], SCHEDULER_THRESHOLD, NULL);
+            REQUIRE_SUCCESS(status, l_release_hef, "Failed setting scheduler threshold");
+        }
 
         status = build_vstreams(network_groups[hef_index],
             input_vstreams[hef_index], input_frame_size[hef_index], src_data[hef_index],

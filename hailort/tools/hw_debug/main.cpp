@@ -68,9 +68,9 @@ static std::unique_ptr<Shell> create_vpu_shell(std::shared_ptr<HailoRTDriver> dr
     add_driver_memory_subshell<VdmaMemorySource>(*shell, "vdma0", "v0", driver_ptr, MemoryType::VDMA0);
     add_driver_memory_subshell<VdmaMemorySource>(*shell, "vdma1", "v1", driver_ptr, MemoryType::VDMA1);
     add_driver_memory_subshell<VdmaMemorySource>(*shell, "vdma2", "v2", driver_ptr, MemoryType::VDMA2);
-    add_driver_memory_subshell(*shell, "engine0", "e0", driver_ptr, MemoryType::DMA_ENGINE0);
-    add_driver_memory_subshell(*shell, "engine1", "e1", driver_ptr, MemoryType::DMA_ENGINE1);
-    add_driver_memory_subshell(*shell, "engine2", "e2", driver_ptr, MemoryType::DMA_ENGINE2);
+    add_driver_memory_subshell<DramDmaEngineMemorySource>(*shell, "engine0", "e0", driver_ptr, MemoryType::DMA_ENGINE0);
+    add_driver_memory_subshell<DramDmaEngineMemorySource>(*shell, "engine1", "e1", driver_ptr, MemoryType::DMA_ENGINE1);
+    add_driver_memory_subshell<DramDmaEngineMemorySource>(*shell, "engine2", "e2", driver_ptr, MemoryType::DMA_ENGINE2);
     add_driver_memory_subshell(*shell, "mem", "m", driver_ptr, MemoryType::DIRECT_MEMORY);
     return shell;
 }

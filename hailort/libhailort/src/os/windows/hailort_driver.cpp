@@ -652,7 +652,7 @@ Expected<ChannelInterruptTimestampList> HailoRTDriver::wait_channel_interrupts(v
         }
         if (ERROR_OPERATION_ABORTED == ioctl_errno) {
             LOGGER__INFO("Stream (index={}) was aborted!", channel_id);
-            return make_unexpected(HAILO_STREAM_INTERNAL_ABORT);
+            return make_unexpected(HAILO_STREAM_ABORTED_BY_USER);
         }
         if (ERROR_NOT_READY == ioctl_errno) {
             LOGGER__INFO("Channel (index={}) was deactivated!", channel_id);
@@ -773,7 +773,7 @@ hailo_status HailoRTDriver::descriptors_list_release(uintptr_t desc_handle)
 }
 
 hailo_status HailoRTDriver::descriptors_list_bind_vdma_buffer(uintptr_t desc_handle, VdmaBufferHandle buffer_handle,
-    uint16_t desc_page_size,  uint8_t channel_index)
+    uint16_t desc_page_size,  uint8_t channel_index, size_t offset)
 {
     tCompatibleHailoIoctlData data = {};
     hailo_desc_list_bind_vdma_buffer_params& config_info = data.Buffer.DescListBind;
@@ -781,6 +781,7 @@ hailo_status HailoRTDriver::descriptors_list_bind_vdma_buffer(uintptr_t desc_han
     config_info.desc_handle = desc_handle;
     config_info.desc_page_size = desc_page_size;
     config_info.channel_index = channel_index;
+    config_info.offset = offset;
 
     if (0 > ioctl(this->m_fd, HAILO_DESC_LIST_BIND_VDMA_BUFFER, &data)) {
         LOGGER__ERROR("Failed to bind vdma buffer to descriptors list with errno: {}", errno);

@@ -136,7 +136,7 @@ hailo_status HailoRTDriver::hailo_ioctl(int fd, int request, void* request_struc
             case ETIMEDOUT:
                 return HAILO_TIMEOUT;
             case ECONNABORTED:
-                return HAILO_STREAM_INTERNAL_ABORT;
+                return HAILO_STREAM_ABORTED_BY_USER;
             case ECONNRESET:
                 return HAILO_STREAM_NOT_ACTIVATED;
             default:
@@ -540,7 +540,7 @@ Expected<ChannelInterruptTimestampList> HailoRTDriver::wait_channel_interrupts(v
             LOGGER__ERROR("Waiting for interrupt for channel {} timed-out (errno=ETIMEDOUT)", channel_id);
             return make_unexpected(status);
         }
-        if (HAILO_STREAM_INTERNAL_ABORT == status) {
+        if (HAILO_STREAM_ABORTED_BY_USER == status) {
             LOGGER__INFO("Channel (index={}) was aborted!", channel_id);
             return make_unexpected(status);
         }
@@ -714,13 +714,14 @@ hailo_status HailoRTDriver::descriptors_list_release(uintptr_t desc_handle)
 }
 
 hailo_status HailoRTDriver::descriptors_list_bind_vdma_buffer(uintptr_t desc_handle, VdmaBufferHandle buffer_handle,
-    uint16_t desc_page_size, uint8_t channel_index)
+    uint16_t desc_page_size, uint8_t channel_index, size_t offset)
 {
     hailo_desc_list_bind_vdma_buffer_params config_info;
     config_info.buffer_handle = buffer_handle;
     config_info.desc_handle = desc_handle;
     config_info.desc_page_size = desc_page_size;
     config_info.channel_index = channel_index;
+    config_info.offset = offset;
 
     int err = 0;
     auto status = hailo_ioctl(this->m_fd, HAILO_DESC_LIST_BIND_VDMA_BUFFER, &config_info, err);

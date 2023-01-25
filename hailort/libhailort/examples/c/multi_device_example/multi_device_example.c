@@ -139,7 +139,6 @@ int main()
     hailo_output_vstream_params_by_name_t output_vstream_params[MAX_EDGE_LAYERS] = {0};
     size_t input_vstreams_size = MAX_EDGE_LAYERS;
     size_t output_vstreams_size = MAX_EDGE_LAYERS;
-    hailo_activated_network_group activated_network_group = NULL;
     hailo_input_vstream input_vstreams[MAX_EDGE_LAYERS] = {NULL};
     hailo_output_vstream output_vstreams[MAX_EDGE_LAYERS] = {NULL};
 
@@ -148,8 +147,6 @@ int main()
 
     status = hailo_init_vdevice_params(&params);
     REQUIRE_SUCCESS(status, l_exit, "Failed init vdevice_params");
-
-    params.scheduling_algorithm = HAILO_SCHEDULING_ALGORITHM_NONE;
 
     params.device_count = (uint32_t)actual_count;
     status = hailo_create_vdevice(&params, &vdevice);
@@ -185,16 +182,11 @@ int main()
     status = hailo_create_output_vstreams(network_group, output_vstream_params, output_vstreams_size, output_vstreams);
     REQUIRE_SUCCESS(status, l_release_input_vstream, "Failed creating output virtual streams\n");
 
-    status = hailo_activate_network_group(network_group, NULL, &activated_network_group);
-    REQUIRE_SUCCESS(status, l_release_output_vstream, "Failed activate network group");
-
     status = infer(input_vstreams, input_vstreams_size, output_vstreams, output_vstreams_size);
-    REQUIRE_SUCCESS(status, l_deactivate_network_group, "Inference failure");
+    REQUIRE_SUCCESS(status, l_release_output_vstream, "Inference failure");
 
     printf("Inference ran successfully\n");
     status = HAILO_SUCCESS;
-l_deactivate_network_group:
-    (void)hailo_deactivate_network_group(activated_network_group);
 l_release_output_vstream:
     (void)hailo_release_output_vstreams(output_vstreams, output_vstreams_size);
 l_release_input_vstream:

@@ -97,7 +97,8 @@ public:
     }
 
 private:
-    Expected<NetworkGroupsParamsMap> get_configure_params(Hef &hef, const char *net_group_name, uint16_t batch_size);
+    Expected<NetworkGroupsParamsMap> get_configure_params(Hef &hef, const VDevice &vdevice, const char *net_group_name,
+        uint16_t batch_size);
     static Expected<std::shared_ptr<VDevice>> create_vdevice(const void *element, const std::string &device_id, uint16_t device_count,
         uint32_t vdevice_key, hailo_scheduling_algorithm_t scheduling_algorithm, bool multi_process_service);
     Expected<std::shared_ptr<VDevice>> create_vdevice(const std::string &device_id, uint16_t device_count, uint32_t vdevice_key,

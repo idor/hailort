@@ -49,14 +49,20 @@ cmake --build build --config release
 > **_NOTE:_** Write permissions are required to compile the examples from their current directory.
 If this is not the case, copy the examples directory to another location with the required permissions.
 
-> **_NOTE:_** In order to compile a specific example, add the example name as target with a c/cpp prefix:
+In order to compile a specific example, add the example name as target with a c/cpp prefix:
 ```sh
 cmake -H. -Bbuild -DCMAKE_BUILD_TYPE=Release
-cmake --build build --target  --config release --target cpp_vstreams_example
+cmake --build build --config release --target cpp_vstreams_example
 ```
 
 ## Running the examples
-One can run the example using the following commands, from the examples directory:
+
+Before running an example, download the HEFs using the [download script](../../scripts/download_hefs.sh):
+  ```sh
+  ../../scripts/download_hefs.sh
+  ```
+
+To run an example, use (from this examples directory):
 
   ```sh
   build/<c/cpp>/<example_name>/<example_name> [params..]

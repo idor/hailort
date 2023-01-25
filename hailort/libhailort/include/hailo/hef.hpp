@@ -442,13 +442,13 @@ public:
 
 private:
     friend class DeviceBase;
-    friend class ConfigManager;
-    friend class VdmaConfigManager;
-    friend class HcpConfigManager;
+    friend class VdmaDevice;
+    friend class EthernetDevice;
     friend class InputStream;
     friend class OutputStream;
     friend class PyhailortInternal;
     friend class ConfiguredNetworkGroupBase;
+    friend class VDeviceBase;
 
 #ifdef HAILO_SUPPORT_MULTI_PROCESS
     friend class HailoRtRpcClient;

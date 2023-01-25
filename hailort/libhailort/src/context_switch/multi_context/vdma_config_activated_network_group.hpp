@@ -29,15 +29,16 @@ class VdmaConfigActivatedNetworkGroup : public ActivatedNetworkGroupBase
 public:
 
     static Expected<VdmaConfigActivatedNetworkGroup> create(
-        VdmaConfigActiveAppHolder &active_net_group_holder,
+        ActiveNetGroupHolder &active_net_group_holder,
         const std::string &network_group_name,
-        std::vector<std::shared_ptr<ResourcesManager>> resources_managers,
+        std::shared_ptr<ResourcesManager> resources_manager,
         const hailo_activate_network_group_params_t &network_group_params,
         uint16_t dynamic_batch_size,
-        std::map<std::string, std::unique_ptr<InputStream>> &input_streams,
-        std::map<std::string, std::unique_ptr<OutputStream>> &output_streams,
+        std::map<std::string, std::shared_ptr<InputStream>> &input_streams,
+        std::map<std::string, std::shared_ptr<OutputStream>> &output_streams,
         EventPtr network_group_activated_event,
-        AccumulatorPtr deactivation_time_accumulator);
+        AccumulatorPtr deactivation_time_accumulator,
+        ConfiguredNetworkGroupBase &network_group);
 
     virtual ~VdmaConfigActivatedNetworkGroup();
 
@@ -55,18 +56,18 @@ private:
       const std::string &network_group_name,
       const hailo_activate_network_group_params_t &network_group_params,
       uint16_t dynamic_batch_size,
-      std::map<std::string, std::unique_ptr<InputStream>> &input_streams,
-      std::map<std::string, std::unique_ptr<OutputStream>> &output_streams,
-      std::vector<std::shared_ptr<ResourcesManager>> &&resources_managers,
-      VdmaConfigActiveAppHolder &active_net_group_holder,
+      std::map<std::string, std::shared_ptr<InputStream>> &input_streams,
+      std::map<std::string, std::shared_ptr<OutputStream>> &output_streams,
+      std::shared_ptr<ResourcesManager> &&resources_manager,
+      ActiveNetGroupHolder &active_net_group_holder,
       EventPtr &&network_group_activated_event,
-      AccumulatorPtr deactivation_time_accumulator, hailo_status &status);
+      AccumulatorPtr deactivation_time_accumulator,
+      ConfiguredNetworkGroupBase &network_group, hailo_status &status);
 
   std::string m_network_group_name;
   bool m_should_reset_network_group;
-  VdmaConfigActiveAppHolder &m_active_net_group_holder;
-  // One ResourcesManager per connected physical device. Currently only one device is supported.
-  std::vector<std::shared_ptr<ResourcesManager>> m_resources_managers;
+  ActiveNetGroupHolder &m_active_net_group_holder;
+  std::shared_ptr<ResourcesManager> m_resources_manager;
   AccumulatorPtr m_deactivation_time_accumulator;
   bool m_keep_nn_config_during_reset;
 };

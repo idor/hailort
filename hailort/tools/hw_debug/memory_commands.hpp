@@ -8,6 +8,7 @@
 
 #include "shell.hpp"
 #include "hailo/hailort.h"
+#include "hailo/expected.hpp"
 #include "spdlog/fmt/fmt.h"
 
 #include <sstream>
@@ -19,15 +20,20 @@ class MemorySource;
 
 class Field {
 public:
-    explicit Field(const std::string &name);
+    explicit Field(std::string &&name, std::string &&description);
     virtual ~Field() = default;
 
-    std::string name() const;
+    Field(const Field &other) = delete;
+    Field &operator=(const Field &other) = delete;
+
+    const std::string &name() const;
+    const std::string &description() const;
 
     virtual size_t elements_count() const = 0;
     virtual std::string print_element(MemorySource& memory, size_t index) const = 0;
 private:
     const std::string m_name;
+    const std::string m_description;
 };
 
 class MemorySource {
@@ -37,6 +43,18 @@ public:
     virtual hailo_status read(uint64_t offset, uint8_t *data, size_t size) = 0;
     virtual hailo_status write(uint64_t offset, const uint8_t *data, size_t size) = 0;
     virtual size_t total_size() const = 0;
+
+    template<typename T>
+    T read(uint64_t offset)
+    {
+        static_assert(std::is_trivial<T>::value, "Non trivial type");
+        T value{};
+        auto status = read(offset, reinterpret_cast<uint8_t*>(&value), sizeof(value));
+        if (HAILO_SUCCESS != status) {
+            throw std::runtime_error(fmt::format("Failed read at {} (size {})", offset, sizeof(value)));
+        }
+        return value;
+    }
 
     const std::map<std::string, std::shared_ptr<Field>> &get_fields() const;
 protected:
@@ -186,6 +204,8 @@ private:
     static std::string get_help(const std::map<std::string, std::shared_ptr<Field>> &fields);
 
     std::shared_ptr<MemorySource> m_memory;
+
+    static constexpr size_t PRINT_ALL = std::numeric_limits<size_t>::max();
 };
 
 #endif /* _HW_DEBUG_MEMORY_COMMANDS_H_ */

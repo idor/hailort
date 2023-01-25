@@ -26,8 +26,6 @@ namespace hailort
 #define IS_FIT_IN_UINT8(number) ((std::numeric_limits<uint8_t>::max() >= ((int32_t)(number))) && (std::numeric_limits<uint8_t>::min() <= ((int32_t)(number))))
 #define IS_FIT_IN_UINT16(number) ((std::numeric_limits<uint16_t>::max() >= ((int32_t)(number))) && (std::numeric_limits<uint16_t>::min() <= ((int32_t)(number))))
 
-#define IS_FIT_IN_UINT16(number) ((std::numeric_limits<uint16_t>::max() >= ((int32_t)(number))) && (std::numeric_limits<uint16_t>::min() <= ((int32_t)(number))))
-
 
 template <typename T>
 static inline bool contains(const std::vector<T> &container, const T &value)
@@ -52,24 +50,6 @@ static inline bool contains(const std::set<T> &container, T value)
 {
     return (container.find(value) != container.end());
 }
-
-template <class T>
-class unlock_guard {
-public:
-    unlock_guard(T &lock) : m_lock(lock) {
-        m_lock.unlock();
-    }
-
-    ~unlock_guard() {
-        m_lock.lock();
-    }
-
-    unlock_guard(const unlock_guard&) = delete;
-    unlock_guard& operator=(const unlock_guard&) = delete;
-
-private:
-    T &m_lock;
-};
 
 // From https://stackoverflow.com/questions/57092289/do-stdmake-shared-and-stdmake-unique-have-a-nothrow-version
 template <class T, class... Args>

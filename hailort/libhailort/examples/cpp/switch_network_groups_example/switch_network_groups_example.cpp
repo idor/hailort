@@ -19,6 +19,9 @@ constexpr hailo_format_type_t FORMAT_TYPE = HAILO_FORMAT_TYPE_AUTO;
 constexpr size_t INFER_FRAME_COUNT = 100;
 constexpr uint32_t DEVICE_COUNT = 1;
 
+constexpr std::chrono::milliseconds SCHEDULER_TIMEOUT_MS(100);
+constexpr uint32_t SCHEDULER_THRESHOLD = 3;
+
 using namespace hailort;
 using ThreadsVector = std::vector<std::unique_ptr<std::thread>>;
 using StatusVector = std::vector<std::shared_ptr<hailo_status>>;
@@ -135,6 +138,19 @@ int main()
     }
     auto configured_network_groups = configured_network_groups_exp.release();
 
+    // Set scheduler's timeout and threshold for the first network group, in order to give priority to the second network group
+    auto status =  configured_network_groups[0]->set_scheduler_timeout(SCHEDULER_TIMEOUT_MS);
+    if (HAILO_SUCCESS != status) {
+        std::cerr << "Failed to set scheduler timeout, status = "  << status << std::endl;
+        return status;
+    }
+
+    status =  configured_network_groups[0]->set_scheduler_threshold(SCHEDULER_THRESHOLD);
+    if (HAILO_SUCCESS != status) {
+        std::cerr << "Failed to set scheduler threshold, status = "  << status << std::endl;
+        return status;
+    }
+
     auto vstreams_per_network_group_exp = build_vstreams(configured_network_groups);
     if (!vstreams_per_network_group_exp) {
         std::cerr << "Failed to create vstreams, status = " << vstreams_per_network_group_exp.status() << std::endl;
@@ -157,10 +173,10 @@ int main()
             thread->join();
         }
     }
-    for (auto &status : results) {
-        if (HAILO_SUCCESS != *status) {
-            std::cerr << "Inference failed, status = "  << *status << std::endl;
-            return *status;
+    for (auto &status_ptr : results) {
+        if (HAILO_SUCCESS != *status_ptr) {
+            std::cerr << "Inference failed, status = "  << *status_ptr << std::endl;
+            return *status_ptr;
         }
     }
 

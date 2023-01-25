@@ -9,6 +9,7 @@
 
 #include <string>
 #include <iostream>
+#include <sstream>
 #include <vector>
 #include <memory>
 
@@ -19,13 +20,22 @@ public:
         m_str(str)
     {}
 
-    void print(std::ostream &out)
+    ShellResult(const std::vector<ShellResult> &results)
+    {
+        std::stringstream out;
+        for (const auto &result : results) {
+            result.print(out);
+        }
+        m_str = out.str();
+    }
+
+    void print(std::ostream &out) const
     {
         out << m_str;
     }
 
 private:
-    const std::string m_str;
+    std::string m_str;
 };
 
 // Base abstract class for some shell command.

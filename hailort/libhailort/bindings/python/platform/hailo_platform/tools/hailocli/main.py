@@ -29,6 +29,7 @@ class PlatformCommands:
         'parse-hef': (' Parse HEF to get information about its components', ParseHEFCommandCLI),
         'measure-power': ('Measures power consumption', MeasurePowerCommandCLI),
         'tutorial': ('Runs the tutorials in jupyter notebook', TutorialRunnerCLI),
+        #'--version': ('Print program version and exit', VersionCLI)
     }
 
     def __init__(self):

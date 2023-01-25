@@ -139,7 +139,6 @@ int main()
         return status;
     }
 
-    params.scheduling_algorithm = HAILO_SCHEDULING_ALGORITHM_NONE;
     params.device_count = static_cast<uint32_t>(scan_res->size());
     auto vdevice = VDevice::create(params);
     if (!vdevice) {
@@ -163,12 +162,6 @@ int main()
         std::cerr << "Trying to infer network with too many input/output virtual streams, Maximum amount is " <<
         MAX_LAYER_EDGES << " (either change HEF or change the definition of MAX_LAYER_EDGES)"<< std::endl;
         return HAILO_INVALID_OPERATION;
-    }
-
-    auto activated_network_group = network_group.value()->activate();
-    if (!activated_network_group) {
-        std::cerr << "Failed activated network group "  << activated_network_group.status();
-        return activated_network_group.status();
     }
 
     status = infer(vstreams->first, vstreams->second);

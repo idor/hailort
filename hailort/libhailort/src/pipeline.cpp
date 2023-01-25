@@ -185,7 +185,9 @@ Expected<PipelineBuffer> BufferPool::acquire_buffer(std::chrono::milliseconds ti
         return make_unexpected(buffer.status());
     }
     else if (HAILO_TIMEOUT == buffer.status()) {
-        LOGGER__WARNING("Failed to acquire buffer because the buffer pool is empty. This could be caused by uneven reading and writing speeds, with a short user-defined timeout.");
+        LOGGER__WARNING(
+            "Failed to acquire buffer because the buffer pool is empty. This could be caused by uneven reading and writing speeds, with a short user-defined timeout. (timeout={}ms)",
+            timeout.count());
         return make_unexpected(buffer.status());
     }
     CHECK_EXPECTED(buffer);
@@ -210,7 +212,7 @@ Expected<PipelineBuffer> BufferPool::get_available_buffer(PipelineBuffer &&optio
     if (HAILO_SHUTDOWN_EVENT_SIGNALED == acquired_buffer.status()) {
         return make_unexpected(acquired_buffer.status());
     }
-    CHECK_EXPECTED(acquired_buffer, "Failed to acquire buffer");
+    CHECK_EXPECTED(acquired_buffer, "Failed to acquire buffer with status={}", acquired_buffer.status());
     return acquired_buffer.release();
 }
 
@@ -686,7 +688,7 @@ hailo_status FilterElement::run_push(PipelineBuffer &&buffer)
         LOGGER__INFO("run_push of {} was shutdown!", name());
         return status;
     }
-    if (status == HAILO_STREAM_INTERNAL_ABORT) {
+    if (status == HAILO_STREAM_ABORTED_BY_USER) {
         LOGGER__INFO("run_push of {} was aborted!", name());
         return status;
     }
@@ -729,6 +731,11 @@ BaseQueueElement::BaseQueueElement(SpscQueue<PipelineBuffer> &&queue, EventPtr s
     m_is_run_in_thread_running(false)
 {}
 
+BaseQueueElement::~BaseQueueElement()
+{
+    LOGGER__INFO("Queue element {} has {} frames in his Queue on destruction", name(), m_queue.size_approx());
+}
+
 void BaseQueueElement::start_thread()
 {
     m_thread = std::thread([this] () {
@@ -757,8 +764,8 @@ void BaseQueueElement::start_thread()
 
             if (HAILO_SUCCESS != status) {
                 if (HAILO_SHUTDOWN_EVENT_SIGNALED != status) {
-                    // We do not want to log error for HAILO_STREAM_INTERNAL_ABORT
-                    if (HAILO_STREAM_INTERNAL_ABORT != status) {
+                    // We do not want to log error for HAILO_STREAM_ABORTED_BY_USER
+                    if (HAILO_STREAM_ABORTED_BY_USER != status) {
                         LOGGER__ERROR("Queue element {} run in thread function failed! status = {}", this->name(), status);
                     }
 
@@ -860,7 +867,7 @@ hailo_status PushQueueElement::execute_abort()
 {
     auto status = m_shutdown_event->reset();
     CHECK_SUCCESS(status);
-    m_pipeline_status->store(HAILO_STREAM_INTERNAL_ABORT);
+    m_pipeline_status->store(HAILO_STREAM_ABORTED_BY_USER);
     status = PipelineElement::execute_abort();
     CHECK_SUCCESS(status);
     return m_activation_event.signal();
@@ -899,8 +906,8 @@ hailo_status BaseQueueElement::pipeline_status()
 {
     auto status = m_pipeline_status->load();
 
-    // We treat HAILO_STREAM_INTERNAL_ABORT as success because it is caused by user action (aborting streams)
-    if (HAILO_STREAM_INTERNAL_ABORT == status) {
+    // We treat HAILO_STREAM_ABORTED_BY_USER as success because it is caused by user action (aborting streams)
+    if (HAILO_STREAM_ABORTED_BY_USER == status) {
         return HAILO_SUCCESS;
     }
     return status;
@@ -968,7 +975,7 @@ hailo_status PushQueueElement::run_push(PipelineBuffer &&buffer)
         m_queue_size_accumulator->add_data_point(static_cast<double>(m_queue.size_approx()));
     }
     auto status = m_pipeline_status->load();
-    if (status == HAILO_STREAM_INTERNAL_ABORT) {
+    if (status == HAILO_STREAM_ABORTED_BY_USER) {
         LOGGER__INFO("run_push of {} was aborted!", name());
         return status;
     }
@@ -999,7 +1006,7 @@ hailo_status PushQueueElement::execute_deactivate()
         // We want to deactivate source even if enqueue failed
         auto deactivation_status = PipelineElement::execute_deactivate();
         CHECK_SUCCESS(deactivation_status);
-        if ((HAILO_STREAM_INTERNAL_ABORT == status) || (HAILO_SHUTDOWN_EVENT_SIGNALED == status)) {
+        if ((HAILO_STREAM_ABORTED_BY_USER == status) || (HAILO_SHUTDOWN_EVENT_SIGNALED == status)) {
             LOGGER__INFO("enqueue() in element {} was aborted, got status = {}", name(), status);
         }
         else {
@@ -1040,7 +1047,7 @@ hailo_status PushQueueElement::run_in_thread()
     }
 
     hailo_status status = next_pad().run_push(buffer.release());
-    if (HAILO_STREAM_INTERNAL_ABORT == status) {
+    if (HAILO_STREAM_ABORTED_BY_USER == status) {
         LOGGER__INFO("run_push of {} was aborted!", name());
         return status;
     }
@@ -1153,9 +1160,9 @@ hailo_status PullQueueElement::run_in_thread()
         LOGGER__INFO("Shutdown event was signaled in run_pull of queue element {}!", name());
         return HAILO_SHUTDOWN_EVENT_SIGNALED;
     }
-    if (HAILO_STREAM_INTERNAL_ABORT == buffer.status()) {
+    if (HAILO_STREAM_ABORTED_BY_USER == buffer.status()) {
         LOGGER__INFO("run_pull of queue element {} was aborted!", name());
-        return HAILO_STREAM_INTERNAL_ABORT;
+        return HAILO_STREAM_ABORTED_BY_USER;
     }
     if (HAILO_NETWORK_GROUP_NOT_ACTIVATED == buffer.status()) {
         LOGGER__INFO("run_pull of queue element {} was called before network_group is activated!", name());
@@ -1247,6 +1254,7 @@ Expected<PipelineBuffer> UserBufferQueueElement::run_pull(PipelineBuffer &&optio
         LOGGER__INFO("Shutdown event was signaled in dequeue of queue element {}!", name());
         return make_unexpected(HAILO_SHUTDOWN_EVENT_SIGNALED);
     }
+    CHECK_AS_EXPECTED(HAILO_TIMEOUT != output.status(), HAILO_TIMEOUT, "{} (D2H) failed with status={} (timeout={}ms)", name(), HAILO_TIMEOUT, m_timeout.count());
     CHECK_EXPECTED(output);
 
     CHECK_AS_EXPECTED(output->data() == optional.data(), HAILO_INTERNAL_FAILURE, "The buffer received in {} was not the same as the user buffer!", name());
@@ -1289,9 +1297,9 @@ hailo_status UserBufferQueueElement::run_in_thread()
         LOGGER__INFO("Shutdown event was signaled in run_pull of {}!", name());
         return HAILO_SHUTDOWN_EVENT_SIGNALED;
     }
-    if (HAILO_STREAM_INTERNAL_ABORT == buffer.status()) {
+    if (HAILO_STREAM_ABORTED_BY_USER == buffer.status()) {
         LOGGER__INFO("run_pull of {} was aborted!", name());
-        return HAILO_STREAM_INTERNAL_ABORT;
+        return HAILO_STREAM_ABORTED_BY_USER;
     }
     CHECK_EXPECTED_AS_STATUS(buffer);
     
@@ -1388,7 +1396,7 @@ Expected<PipelineBuffer> BaseDemuxElement::run_pull(PipelineBuffer &&optional, c
     m_was_source_called[m_index_of_source[&source]] = true;
     if (were_all_sinks_called()) {
         auto input = next_pad().run_pull();
-        if (HAILO_STREAM_INTERNAL_ABORT == input.status()) {
+        if (HAILO_STREAM_ABORTED_BY_USER == input.status()) {
             LOGGER__INFO("run_pull of demux element was aborted!");
             m_was_stream_aborted = true;
             lock.unlock();
@@ -1417,14 +1425,18 @@ Expected<PipelineBuffer> BaseDemuxElement::run_pull(PipelineBuffer &&optional, c
         m_cv.notify_all();
     } else {
         auto cv_status = m_cv.wait_for(lock, m_timeout);
-        CHECK_AS_EXPECTED(std::cv_status::timeout != cv_status, HAILO_TIMEOUT, "Waiting for other threads in demux {} has reached a timeout!", name());
+        CHECK_AS_EXPECTED(std::cv_status::timeout != cv_status, HAILO_TIMEOUT, "Waiting for other threads in demux {} has reached a timeout (timeout={}ms)", name(), m_timeout.count());
 
         if (m_was_stream_aborted) {
-            return make_unexpected(HAILO_STREAM_INTERNAL_ABORT);
+            lock.unlock();
+            m_cv.notify_all();
+            return make_unexpected(HAILO_STREAM_ABORTED_BY_USER);
         }
 
         // We check if the element is not activated in case notify_all() was called from deactivate()
         if (!m_is_activated) {
+            lock.unlock();
+            m_cv.notify_all();
             return make_unexpected(HAILO_SHUTDOWN_EVENT_SIGNALED);
         }
     }
@@ -1482,7 +1494,11 @@ hailo_status BaseDemuxElement::execute_post_deactivate()
 
 hailo_status BaseDemuxElement::execute_abort()
 {
-    m_was_stream_aborted = true;
+    {
+        std::unique_lock<std::mutex> lock(m_mutex);
+        m_was_stream_aborted = true;
+    }
+    m_cv.notify_all();
     return PipelineElement::execute_abort();
 }
 

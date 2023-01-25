@@ -176,6 +176,55 @@ class PipelineElement;
 using PushCompleteCallback = std::function<void(const PipelineBuffer::Metadata&)>;
 using PullCompleteCallback = std::function<void(const PipelineBuffer::Metadata&)>;
 
+struct NetFlowPad {
+    std::string name;
+    hailo_format_t format;
+    hailo_quant_info_t quant_info;
+    uint32_t number_of_classes = 0; // temporarly here, should be only if the previous op is NMS
+};
+
+struct NetFlowElement {
+    std::vector<NetFlowPad> input_pads;
+    std::vector<NetFlowPad> output_pads;
+
+    enum class Type
+    {
+        None = 0,
+        CoreOp = 1,
+        YoloNmsOp = 2
+    };
+
+    Type type;
+    std::string name;
+    std::set<std::string> input_streams;
+
+    virtual ~NetFlowElement() = default;
+};
+
+struct YoloBboxDecoder {
+    std::vector<uint32_t> h;
+    std::vector<uint32_t> w;
+    uint32_t stride = 0;
+    // uint32_t pad_index;
+    std::string stream_name;
+};
+
+struct NetFlowNmsElement : NetFlowElement {
+    float32_t nms_score_th = 0;
+    float32_t nms_iou_th = 0;
+    uint32_t max_proposals_per_class = 0;
+    uint32_t classes = 0;
+    bool background_removal = false;
+    uint32_t background_removal_index = 0;
+};
+
+struct NetFlowYoloNmsElement final : NetFlowNmsElement {
+    std::vector<YoloBboxDecoder> bbox_decoders;
+    float32_t image_height = 0;
+    float32_t image_width = 0;
+    uint32_t input_division_factor = 0;
+};
+
 class PipelinePad final : public PipelineObject
 {
 public:
@@ -353,7 +402,7 @@ protected:
 class BaseQueueElement : public IntermediateElement
 {
 public:
-    virtual ~BaseQueueElement() = default;
+    virtual ~BaseQueueElement();
 
     hailo_status set_timeout(std::chrono::milliseconds timeout);
     virtual std::string description() const override;

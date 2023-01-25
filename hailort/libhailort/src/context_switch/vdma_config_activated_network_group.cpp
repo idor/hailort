@@ -15,15 +15,16 @@ namespace hailort
 {
 
 Expected<VdmaConfigActivatedNetworkGroup> VdmaConfigActivatedNetworkGroup::create(
-    VdmaConfigActiveAppHolder &active_net_group_holder,
+    ActiveNetGroupHolder &active_net_group_holder,
     const std::string &network_group_name,
-    std::vector<std::shared_ptr<ResourcesManager>> resources_managers,
+    std::shared_ptr<ResourcesManager> resources_manager,
     const hailo_activate_network_group_params_t &network_group_params,
     uint16_t dynamic_batch_size,
-    std::map<std::string, std::unique_ptr<InputStream>> &input_streams,
-    std::map<std::string, std::unique_ptr<OutputStream>> &output_streams,         
+    std::map<std::string, std::shared_ptr<InputStream>> &input_streams,
+    std::map<std::string, std::shared_ptr<OutputStream>> &output_streams,         
     EventPtr network_group_activated_event,
-    AccumulatorPtr deactivation_time_accumulator)
+    AccumulatorPtr deactivation_time_accumulator,
+    ConfiguredNetworkGroupBase &network_group)
 {
     CHECK(!active_net_group_holder.is_any_active(), make_unexpected(HAILO_INVALID_OPERATION),
         "network group is currently active. You must deactivate before activating another network_group");
@@ -32,8 +33,8 @@ Expected<VdmaConfigActivatedNetworkGroup> VdmaConfigActivatedNetworkGroup::creat
 
     auto status = HAILO_UNINITIALIZED;
     VdmaConfigActivatedNetworkGroup object(network_group_name, network_group_params, dynamic_batch_size, input_streams, output_streams,
-        std::move(resources_managers), active_net_group_holder, std::move(network_group_activated_event),
-        deactivation_time_accumulator, status);
+        std::move(resources_manager), active_net_group_holder, std::move(network_group_activated_event),
+        deactivation_time_accumulator, network_group, status);
     CHECK_SUCCESS_AS_EXPECTED(status);
 
     return object;
@@ -43,19 +44,20 @@ VdmaConfigActivatedNetworkGroup::VdmaConfigActivatedNetworkGroup(
         const std::string &network_group_name,
         const hailo_activate_network_group_params_t &network_group_params,
         uint16_t dynamic_batch_size,
-        std::map<std::string, std::unique_ptr<InputStream>> &input_streams,
-        std::map<std::string, std::unique_ptr<OutputStream>> &output_streams,
-        std::vector<std::shared_ptr<ResourcesManager>> &&resources_managers,
-        VdmaConfigActiveAppHolder &active_net_group_holder,
+        std::map<std::string, std::shared_ptr<InputStream>> &input_streams,
+        std::map<std::string, std::shared_ptr<OutputStream>> &output_streams,
+        std::shared_ptr<ResourcesManager> &&resources_manager,
+        ActiveNetGroupHolder &active_net_group_holder,
         EventPtr &&network_group_activated_event,
         AccumulatorPtr deactivation_time_accumulator,
+        ConfiguredNetworkGroupBase &network_group,
         hailo_status &status) :
     ActivatedNetworkGroupBase(network_group_params, input_streams, output_streams,
                               std::move(network_group_activated_event), status),
     m_network_group_name(network_group_name),
     m_should_reset_network_group(true),
     m_active_net_group_holder(active_net_group_holder),
-    m_resources_managers(std::move(resources_managers)),
+    m_resources_manager(std::move(resources_manager)),
     m_deactivation_time_accumulator(deactivation_time_accumulator),
     m_keep_nn_config_during_reset(false)
 {
@@ -63,44 +65,11 @@ VdmaConfigActivatedNetworkGroup::VdmaConfigActivatedNetworkGroup(
     if (HAILO_SUCCESS != status) {
         return;
     }
-    m_active_net_group_holder.set(*this);
-
-    for (auto &resources_manager : m_resources_managers) {
-        status = resources_manager->register_fw_managed_vdma_channels();
-        if (HAILO_SUCCESS != status) {
-            LOGGER__ERROR("Failed to start fw managed vdma channels.");
-            return;
-        }
-
-        status = resources_manager->set_inter_context_channels_dynamic_batch_size(dynamic_batch_size);
-        if (HAILO_SUCCESS != status) {
-            LOGGER__ERROR("Failed to set inter-context channels dynamic batch size.");
-            return;
-        }
-    }
-
-    for (auto &resources_manager : m_resources_managers) {
-        status = resources_manager->enable_state_machine(dynamic_batch_size);
-        if (HAILO_SUCCESS != status) {
-            LOGGER__ERROR("Failed to activate state-machine");
-            return;
-        }
-    }
-
-    // TODO: remove this after fixing (HRT-8477)
-    for (auto &resources_manager : m_resources_managers) {
-        resources_manager->unmark_d2h_callbacks_for_shutdown();
-    }
-
-    status = activate_low_level_streams(dynamic_batch_size);
+    
+    // We know network_group is a VdmaConfigNetworkGroup
+    status = network_group.activate_impl(dynamic_batch_size);
     if (HAILO_SUCCESS != status) {
-        LOGGER__ERROR("Failed to activate low level streams");
-        return;
-    }
-
-    status = m_network_group_activated_event->signal();
-    if (HAILO_SUCCESS != status) {
-        LOGGER__ERROR("Failed to signal network activation event");
+        LOGGER__ERROR("Error activating network group");
         return;
     }
 }
@@ -110,7 +79,7 @@ VdmaConfigActivatedNetworkGroup::VdmaConfigActivatedNetworkGroup(VdmaConfigActiv
     m_network_group_name(std::move(other.m_network_group_name)),
     m_should_reset_network_group(std::exchange(other.m_should_reset_network_group, false)),
     m_active_net_group_holder(other.m_active_net_group_holder),
-    m_resources_managers(std::move(other.m_resources_managers)),
+    m_resources_manager(std::move(other.m_resources_manager)),
     m_deactivation_time_accumulator(std::move(other.m_deactivation_time_accumulator)),
     m_keep_nn_config_during_reset(std::move(other.m_keep_nn_config_during_reset))
 {}
@@ -124,44 +93,22 @@ VdmaConfigActivatedNetworkGroup::~VdmaConfigActivatedNetworkGroup()
     auto status = HAILO_UNINITIALIZED;
     const auto start_time = std::chrono::steady_clock::now();
 
-    m_active_net_group_holder.clear();
-    
-    m_network_group_activated_event->reset();
-
-    // TODO: We call flush_boundary_input_channels instead of the input stream's flush function
-    //       in order to control the timeout (which can be inifinite in some cases) (HRT-8227)
-    for (auto &resources_manager : m_resources_managers) {
-        status = resources_manager->flush_boundary_input_channels();
-        if (HAILO_STREAM_INTERNAL_ABORT == status) {
-            LOGGER__DEBUG("Failed to flush boundary input channels with status {}", status);
-        }
-        else if (HAILO_SUCCESS != status) {
-            LOGGER__ERROR("Failed to flush boundary input channels with status {}", status);
-        }
+    auto config_network_group_ref = m_active_net_group_holder.get();
+    if (!config_network_group_ref.has_value()) {
+        LOGGER__ERROR("Error getting configured network group");
+        return;
     }
 
-    // TODO: remove this after fixing (HRT-8477)
-    for (auto &resources_manager : m_resources_managers) {
-        resources_manager->mark_d2h_callbacks_for_shutdown();
-    }
+    auto vdma_config_network_group = config_network_group_ref.value();
 
-    for (auto &resources_manager : m_resources_managers) {
-        status = resources_manager->reset_state_machine(m_keep_nn_config_during_reset);
-        if (HAILO_SUCCESS != status) {
-            LOGGER__ERROR("Failed to reset context switch with status {}", status);
-        }
-    }
-
-    status = deactivate_low_level_streams();
+    status = vdma_config_network_group.get().deactivate_impl();
     if (HAILO_SUCCESS != status) {
-        LOGGER__ERROR("Failed to deactivate low level streams with status {}", status);
+        LOGGER__ERROR("Failed deactivating network group");
     }
 
-    for (auto &resources_manager : m_resources_managers) {
-        status = resources_manager->unregister_fw_managed_vdma_channels();
-        if (HAILO_SUCCESS != status) {
-            LOGGER__ERROR("Failed to stop fw managed vdma channels with status {}", status);
-        }
+    status = m_resources_manager->reset_state_machine(m_keep_nn_config_during_reset);
+    if (HAILO_SUCCESS != status) {
+        LOGGER__ERROR("Failed to reset context switch with status {}", status);
     }
 
     const auto elapsed_time_ms = std::chrono::duration<double, std::milli>(
@@ -177,10 +124,7 @@ const std::string &VdmaConfigActivatedNetworkGroup::get_network_group_name() con
 
 Expected<Buffer> VdmaConfigActivatedNetworkGroup::get_intermediate_buffer(const IntermediateBufferKey &key)
 {
-    CHECK_AS_EXPECTED(1 == m_resources_managers.size(), HAILO_INVALID_OPERATION,
-        "'get_intermediate_buffer' function works only when working with 1 physical device. number of physical devices: {}",
-        m_resources_managers.size());
-    return m_resources_managers[0]->read_intermediate_buffer(key);
+    return m_resources_manager->read_intermediate_buffer(key);
 }
 
 hailo_status VdmaConfigActivatedNetworkGroup::set_keep_nn_config_during_reset(const bool keep_nn_config_during_reset)

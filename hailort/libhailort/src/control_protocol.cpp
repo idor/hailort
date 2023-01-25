@@ -333,6 +333,11 @@ HAILO_COMMON_STATUS_t CONTROL_PROTOCOL__pack_get_overcurrent_state_request(CONTR
     return control_protocol__pack_empty_request(request, request_size, sequence, HAILO_CONTROL_OPCODE_GET_OVERCURRENT_STATE);
 }
 
+HAILO_COMMON_STATUS_t CONTROL_PROTOCOL__pack_get_hw_consts_request(CONTROL_PROTOCOL__request_t *request, size_t *request_size, uint32_t sequence)
+{
+    return control_protocol__pack_empty_request(request, request_size, sequence, HAILO_CONTROL_OPCODE_GET_HW_CONSTS);
+}
+
 HAILO_COMMON_STATUS_t CONTROL_PROTOCOL__pack_set_clock_freq_request(CONTROL_PROTOCOL__request_t *request, size_t *request_size, uint32_t sequence,
                                                                      uint32_t clock_freq)
 {
@@ -497,6 +502,7 @@ HAILO_COMMON_STATUS_t control_protocol__pack_config_stream_base_request(CONTROL_
     request->parameters.config_stream_request.nn_stream_config.core_bytes_per_buffer = BYTE_ORDER__htons(params->nn_stream_config.core_bytes_per_buffer);
     request->parameters.config_stream_request.nn_stream_config.core_buffers_per_frame = BYTE_ORDER__htons(params->nn_stream_config.core_buffers_per_frame);
     request->parameters.config_stream_request.nn_stream_config.periph_bytes_per_buffer = BYTE_ORDER__htons(params->nn_stream_config.periph_bytes_per_buffer);
+    request->parameters.config_stream_request.nn_stream_config.periph_buffers_per_frame = BYTE_ORDER__htons(params->nn_stream_config.periph_buffers_per_frame);
     request->parameters.config_stream_request.nn_stream_config.feature_padding_payload = BYTE_ORDER__htons(params->nn_stream_config.feature_padding_payload);
     request->parameters.config_stream_request.nn_stream_config.buffer_padding_payload = BYTE_ORDER__htons(params->nn_stream_config.buffer_padding_payload);
     request->parameters.config_stream_request.nn_stream_config.buffer_padding = BYTE_ORDER__htons(params->nn_stream_config.buffer_padding);
@@ -1621,40 +1627,29 @@ HAILO_COMMON_STATUS_t CONTROL_PROTOCOL__pack_sensor_get_sections_info_request(CO
     return control_protocol__pack_empty_request(request, request_size, sequence, HAILO_CONTROL_OPCODE_SENSOR_GET_SECTIONS_INFO);
 }
 
-HAILO_COMMON_STATUS_t CONTROL_PROTOCOL__pack_context_switch_set_main_header_request(
-        CONTROL_PROTOCOL__request_t *request, size_t *request_size, uint32_t sequence, 
-        CONTROL_PROTOCOL__context_switch_main_header_t *context_switch_header)
+HAILO_COMMON_STATUS_t CONTROL_PROTOCOL__pack_context_switch_set_network_group_header_request(
+    CONTROL_PROTOCOL__request_t *request, size_t *request_size, uint32_t sequence,
+    const CONTROL_PROTOCOL__application_header_t *network_group_header)
 {
     HAILO_COMMON_STATUS_t status = HAILO_COMMON_STATUS__UNINITIALIZED;
     size_t local_request_size = 0;
 
-    if ((NULL == request) || (NULL == request_size) || (NULL == context_switch_header)) {
+    if ((NULL == request) || (NULL == request_size) || (NULL == network_group_header)) {
         status = HAILO_STATUS__CONTROL_PROTOCOL__NULL_ARGUMENT_PASSED;
         goto exit;
     }
 
     /* Header */
-    local_request_size = CONTROL_PROTOCOL__REQUEST_BASE_SIZE + sizeof(CONTROL_PROTOCOL__context_switch_set_main_header_request_t);
-    control_protocol__pack_request_header(request, sequence, HAILO_CONTROL_OPCODE_CONTEXT_SWITCH_SET_MAIN_HEADER, 3);
-
-    /* context_switch_version */
-    request->parameters.context_switch_set_main_header_request.context_switch_version_length = 
-        BYTE_ORDER__htonl(sizeof(request->parameters.context_switch_set_main_header_request.context_switch_version));
-    request->parameters.context_switch_set_main_header_request.context_switch_version = 
-        context_switch_header->context_switch_version;
-
-    /* application_count */
-    request->parameters.context_switch_set_main_header_request.application_count_length = 
-        BYTE_ORDER__htonl(sizeof(request->parameters.context_switch_set_main_header_request.application_count));
-    request->parameters.context_switch_set_main_header_request.application_count = 
-        context_switch_header->application_count;
+    local_request_size = CONTROL_PROTOCOL__REQUEST_BASE_SIZE + sizeof(CONTROL_PROTOCOL__context_switch_set_network_group_header_request_t);
+    control_protocol__pack_request_header(request, sequence,
+        HAILO_CONTROL_OPCODE_CONTEXT_SWITCH_SET_NETWORK_GROUP_HEADER, 1);
 
     /* application_header */
-    request->parameters.context_switch_set_main_header_request.application_header_length = 
-        BYTE_ORDER__htonl(sizeof(request->parameters.context_switch_set_main_header_request.application_header));
-    memcpy(&(request->parameters.context_switch_set_main_header_request.application_header), 
-            &(context_switch_header->application_header), 
-            sizeof(request->parameters.context_switch_set_main_header_request.application_header));
+    request->parameters.context_switch_set_network_group_header_request.application_header_length = 
+        BYTE_ORDER__htonl(sizeof(request->parameters.context_switch_set_network_group_header_request.application_header));
+    memcpy(&(request->parameters.context_switch_set_network_group_header_request.application_header), 
+            network_group_header, 
+            sizeof(request->parameters.context_switch_set_network_group_header_request.application_header));
 
     *request_size = local_request_size;
     status = HAILO_COMMON_STATUS__SUCCESS;
@@ -1663,8 +1658,8 @@ exit:
 }
 
 HAILO_COMMON_STATUS_t CONTROL_PROTOCOL__pack_context_switch_set_context_info_request(
-        CONTROL_PROTOCOL__request_t *request, size_t *request_size, uint32_t sequence, 
-        CONTROL_PROTOCOL__context_switch_context_info_single_control_t *context_info)
+    CONTROL_PROTOCOL__request_t *request, size_t *request_size, uint32_t sequence, 
+    const CONTROL_PROTOCOL__context_switch_context_info_single_control_t *context_info)
 {
     HAILO_COMMON_STATUS_t status = HAILO_COMMON_STATUS__UNINITIALIZED;
     size_t local_request_size = 0;
@@ -1677,7 +1672,7 @@ HAILO_COMMON_STATUS_t CONTROL_PROTOCOL__pack_context_switch_set_context_info_req
     /* Header */
     local_request_size = CONTROL_PROTOCOL__REQUEST_BASE_SIZE + 
         sizeof(CONTROL_PROTOCOL__context_switch_set_context_info_request_t) + context_info->context_network_data_length;
-    control_protocol__pack_request_header(request, sequence, HAILO_CONTROL_OPCODE_CONTEXT_SWITCH_SET_CONTEXT_INFO, 9);
+    control_protocol__pack_request_header(request, sequence, HAILO_CONTROL_OPCODE_CONTEXT_SWITCH_SET_CONTEXT_INFO, 5);
 
     /* is_first_control_per_context */
     request->parameters.context_switch_set_context_info_request.is_first_control_per_context_length = 
@@ -1697,37 +1692,14 @@ HAILO_COMMON_STATUS_t CONTROL_PROTOCOL__pack_context_switch_set_context_info_req
     request->parameters.context_switch_set_context_info_request.context_type = 
         context_info->context_type;
 
-    /* cfg_channels_count */
-    request->parameters.context_switch_set_context_info_request.cfg_channels_count_length = 
-        BYTE_ORDER__htonl(sizeof(request->parameters.context_switch_set_context_info_request.cfg_channels_count));
-    request->parameters.context_switch_set_context_info_request.cfg_channels_count = context_info->cfg_channels_count;
-
-    /* context cfg buffer info */
-    request->parameters.context_switch_set_context_info_request.config_channel_infos_length = 
-        BYTE_ORDER__htonl(sizeof(request->parameters.context_switch_set_context_info_request.config_channel_infos));
-    memcpy(&(request->parameters.context_switch_set_context_info_request.config_channel_infos), 
-            &(context_info->config_channel_infos), 
-            sizeof(request->parameters.context_switch_set_context_info_request.config_channel_infos));
-
-    /* context unused stream index */
-    request->parameters.context_switch_set_context_info_request.context_stream_remap_data_length = 
-        BYTE_ORDER__htonl(sizeof(request->parameters.context_switch_set_context_info_request.context_stream_remap_data));
-    request->parameters.context_switch_set_context_info_request.context_stream_remap_data = 
-        context_info->context_stream_remap_data;
-
-    /* number of edge layer */
-    request->parameters.context_switch_set_context_info_request.number_of_edge_layers_length = 
-        BYTE_ORDER__htonl(sizeof(request->parameters.context_switch_set_context_info_request.number_of_edge_layers));
-    request->parameters.context_switch_set_context_info_request.number_of_edge_layers = context_info->number_of_edge_layers;
-
-    /* number of trigger groups */
-    request->parameters.context_switch_set_context_info_request.number_of_trigger_groups_length = 
-        BYTE_ORDER__htonl(sizeof(request->parameters.context_switch_set_context_info_request.number_of_trigger_groups));
-    request->parameters.context_switch_set_context_info_request.number_of_trigger_groups = 
-        context_info->number_of_trigger_groups;
+    /* actions_count */
+    request->parameters.context_switch_set_context_info_request.actions_count_length = 
+        BYTE_ORDER__htonl(sizeof(request->parameters.context_switch_set_context_info_request.actions_count));
+    request->parameters.context_switch_set_context_info_request.actions_count = 
+        BYTE_ORDER__htonl(context_info->actions_count);
 
     /* Network data (edge layers + Trigger groups) */
-    if (CONTROL_PROTOCOL__CONTEXT_NETWORK_DATA_MAX_SIZE < context_info->context_network_data_length) {
+    if (CONTROL_PROTOCOL__CONTEXT_NETWORK_DATA_SINGLE_CONTROL_MAX_SIZE < context_info->context_network_data_length) {
         status = HAILO_STATUS__CONTROL_PROTOCOL__INVALID_BUFFER_SIZE;
         goto exit;
     }
@@ -2389,6 +2361,34 @@ HAILO_COMMON_STATUS_t CONTROL_PROTOCOL__pack_run_bist_test_request(
     *request_size = local_request_size;
 
     return HAILO_COMMON_STATUS__SUCCESS;
+}
+
+HAILO_COMMON_STATUS_t CONTROL_PROTOCOL__pack_set_sleep_state_request(
+        CONTROL_PROTOCOL__request_t *request, size_t *request_size, uint32_t sequence,
+        uint8_t sleep_state)
+{
+    HAILO_COMMON_STATUS_t status = HAILO_COMMON_STATUS__UNINITIALIZED;
+    size_t local_request_size = 0;
+
+    if ((NULL == request) || (NULL == request_size)) {
+        status = HAILO_STATUS__CONTROL_PROTOCOL__NULL_ARGUMENT_PASSED;
+        goto exit;
+    }
+
+    /* Header */
+    local_request_size = CONTROL_PROTOCOL__REQUEST_BASE_SIZE + 
+        sizeof(CONTROL_PROTOCOL__set_sleep_state_request_t);
+    control_protocol__pack_request_header(request, sequence, HAILO_CONTROL_OPCODE_SET_SLEEP_STATE, 1);
+
+    /* sleep_state */
+    request->parameters.set_sleep_state_request.sleep_state_length = 
+        BYTE_ORDER__htonl(sizeof(request->parameters.set_sleep_state_request.sleep_state));
+    request->parameters.set_sleep_state_request.sleep_state = sleep_state;
+
+    *request_size = local_request_size;
+    status = HAILO_COMMON_STATUS__SUCCESS;
+exit:
+    return status;
 }
 
 #endif /* FIRMWARE_ARCH */

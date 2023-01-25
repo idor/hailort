@@ -122,7 +122,7 @@ class ExceptionWrapper(object):
             raise HailoRTInvalidFrameException("An invalid frame was received")
         if string_error_code == "HAILO_TIMEOUT":
             raise HailoRTTimeout("Received a timeout - hailort has failed because a timeout had occurred")
-        if string_error_code == "HAILO_STREAM_ABORTED":
+        if string_error_code == "HAILO_STREAM_ABORTED_BY_HW":
             raise HailoRTStreamAborted("Stream aborted due to an external event")
 
         if string_error_code == "HAILO_INVALID_OPERATION":
@@ -1075,6 +1075,7 @@ class HailoRTTransformUtils(object):
 
 class InternalEthernetDevice(object):
     def __init__(self, address, port, response_timeout_seconds=10, max_number_of_attempts=3):
+        # default_logger().warning("InternalEthernetDevice is deprecated! Please use Device object.")
         self.device = None
         self._address = address
         self._port = port
@@ -1103,6 +1104,7 @@ class PcieDeviceInfo(_pyhailort.PcieDeviceInfo):
 
     def __init__(self, bus, device, func, domain=None):
         super(PcieDeviceInfo, self).__init__()
+        # default_logger().warning("PcieDeviceInfo is deprecated! Please use Device object with device_id.")
         self.bus = bus
         self.device = device
         self.func = func
@@ -1139,6 +1141,7 @@ class PcieDeviceInfo(_pyhailort.PcieDeviceInfo):
 
 class InternalPcieDevice(object):
     def __init__(self, device_info=None):
+        # self._logger.warning("InternalPcieDevice deprecated! Please use Device object.")
         self.device = None
         if device_info is None:
             device_info = InternalPcieDevice.scan_devices()[0]
@@ -1232,7 +1235,7 @@ class HailoFormatFlags(_pyhailort.FormatFlags):
 
 SUPPORTED_PROTOCOL_VERSION = 2
 SUPPORTED_FW_MAJOR = 4
-SUPPORTED_FW_MINOR = 11
+SUPPORTED_FW_MINOR = 12
 SUPPORTED_FW_REVISION = 0
 
 MEGA_MULTIPLIER = 1000.0 * 1000.0
@@ -2177,7 +2180,6 @@ class Control:
         return self._device
 
 
-# TODO: HRT-7718 - implement more functionalities from hw_object.py
 class Device:
     """ Hailo device object representation. """
 
@@ -2200,6 +2202,7 @@ class Device:
         """
         gc.collect()
 
+        self._logger = default_logger()
         # Device __del__ function tries to release self._device.
         # to avoid AttributeError if the __init__ func fails, we set it to None first.
         # https://stackoverflow.com/questions/6409644/is-del-called-on-an-object-that-doesnt-complete-init
@@ -2273,46 +2276,65 @@ class Device:
         """
         return self._control_object
 
+    def read_log(self, count, cpu_id):
+        """
+        Returns:
+            Returns buffer with debug log data.
+
+        Args:
+            count (int): bytes count to read
+            cpu_id (HailoCpuId): cpu id
+        """
+        with ExceptionWrapper():
+            return self._device.read_log(count, cpu_id)
+
+    @property
+    def loaded_network_groups(self):
+        """Getter for the property _loaded_network_groups.
+
+        Returns:
+            list of :obj:`ConfiguredNetwork`: List of the the configured network groups loaded on the device.
+        """
+        return self._loaded_network_groups
+
+    @property
+    def _loaded_network_group(self):
+        if len(self._loaded_network_groups) != 1:
+            raise HailoRTException("Access to network group is only allowed when there is a single loaded network group")
+        return self._loaded_network_groups[0]
+
+
 class VDevice(object):
     """Hailo virtual device representation."""
 
-    def __init__(self, params=None, device_infos=None, *, device_ids=None):
+    def __init__(self, params=None, *, device_ids=None):
 
         """Create the Hailo virtual device object.
 
         Args:
             params (:obj:`hailo_platform.pyhailort.pyhailort.VDeviceParams`, optional): VDevice params, call
-                :func:`VDevice.create_params` to get default params. Excludes 'device_ids' and 'device_infos'.
-            device_infos (list of :obj:`hailo_platform.pyhailort.pyhailort.PcieDeviceInfo`, optional):
-                Deprecated - one should use device_ids instead. If given - pcie devices infos to create VDevice from,
-                call :func:`PcieDevice.scan_devices` to get list of all available devices. Excludes 'params' and 'device_ids.
-            device_ids (list of str, optional): devices ids to create VDevice from, call :func:`_Device.scan` to get
-                list of all available devices. Excludes 'params' and 'device_infos'.
+                :func:`VDevice.create_params` to get default params. Excludes 'device_ids'.
+            device_ids (list of str, optional): devices ids to create VDevice from, call :func:`Device.scan` to get
+                list of all available devices. Excludes 'params'.
         """
         gc.collect()
+
+        # VDevice __del__ function tries to release self._vdevice.
+        # to avoid AttributeError if the __init__ func fails, we set it to None first.
+        # https://stackoverflow.com/questions/6409644/is-del-called-on-an-object-that-doesnt-complete-init
+        self._vdevice = None
+
         self._id = "VDevice"
         self._params = params
-
-        # Convert device_infos to device_ids
-        if device_infos is not None:
-            if device_ids is not None:
-                raise HailoRTException("VDevice can by ids from either device_ids or device_infos. Both parameters were passed to the c'tor")
-
-            logger = default_logger()
-            logger.warning("Warning - passing device_infos is deprecated. One should pass device_ids.")
-            device_ids = [str(device_info) for device_info in device_infos]
-            device_infos = None
+        self._loaded_network_groups = []
+        self._creation_pid = os.getpid()
 
         self._device_ids = device_ids
         if self._device_ids is not None:
             if self._params is not None:
-                raise HailoRTException("VDevice can be created from params or device ids/infos. Both parameters were passed to the c'tor")
+                raise HailoRTException("VDevice can be created from params or device ids. Both parameters were passed to the c'tor")
 
-        self._vdevice = None
-        self._loaded_network_groups = []
         self._open_vdevice()
-
-        self._creation_pid = os.getpid()
 
     def _open_vdevice(self):
         if self._device_ids is not None:
@@ -2369,19 +2391,6 @@ class VDevice(object):
         phys_dev_infos = self.get_physical_devices_ids()
         return [Device(dev_id) for dev_id in phys_dev_infos]
 
-    def get_physical_devices_infos(self):
-        """Deprecated: :func:`VDevice.get_physical_devices_infos` is deprecated. One should use
-        (:func:`VDevice.get_physical_devices_ids`) instead.
-
-        Gets the physical devices infos.
-
-        Return:
-            list of :obj:`~hailo_platform.pyhailort.pyhailort.PcieDeviceInfo`: The underlying physical devices infos.
-        """
-        logger = default_logger()
-        logger.warning("Warning - VDevice.get_physical_devices_infos() is deprecated. One should use VDevice.get_physical_devices_ids.")
-        return [PcieDeviceInfo.from_string(dev_id) for dev_id in self.get_physical_devices_ids()]
-
     def get_physical_devices_ids(self):
         """Gets the physical devices ids.
 
@@ -2390,6 +2399,22 @@ class VDevice(object):
         """
         with ExceptionWrapper():
             return self._vdevice.get_physical_devices_ids()
+
+    @property
+    def loaded_network_groups(self):
+        """Getter for the property _loaded_network_groups.
+
+        Returns:
+            list of :obj:`ConfiguredNetwork`: List of the the configured network groups loaded on the device.
+        """
+        return self._loaded_network_groups
+
+    @property
+    def _loaded_network_group(self):
+        if len(self._loaded_network_groups) != 1:
+            raise HailoRTException("Access to network group is only allowed when there is a single loaded network group")
+        return self._loaded_network_groups[0]
+
 
 class InputVStreamParams(object):
     """Parameters of an input virtual stream (host to device)."""
@@ -2870,3 +2895,14 @@ class OutputVStreams(object):
 
     def __iter__(self):
         return iter(self._vstreams.values())
+
+class YOLOv5PostProcessingOp(object):
+
+    def __init__(self, anchors, shapes, formats, quant_infos, image_height, image_width, confidence_threshold, iou_threshold, num_of_classes,
+            should_dequantize, max_boxes, should_sigmoid, one_class_per_bbox=True):
+
+        self._op = _pyhailort.YOLOv5PostProcessingOp.create(anchors, shapes, formats, quant_infos, image_height, image_width, confidence_threshold,
+            iou_threshold, num_of_classes, should_dequantize, max_boxes, should_sigmoid, one_class_per_bbox)
+
+    def execute(self, net_flow_tensors):
+        return self._op.execute(net_flow_tensors)

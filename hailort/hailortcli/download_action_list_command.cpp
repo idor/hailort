@@ -192,9 +192,9 @@ Expected<ordered_json> DownloadActionListCommand::parse_action_data(uint32_t bas
             data_json = *reinterpret_cast<CONTEXT_SWITCH_DEFS__wait_dma_idle_data_t *>(action);
             action_length_local = sizeof(CONTEXT_SWITCH_DEFS__wait_dma_idle_data_t);
             break;
-        case CONTEXT_SWITCH_DEFS__ACTION_TYPE_WAIT_FOR_NMS_IDLE:
-            data_json = *reinterpret_cast<CONTEXT_SWITCH_DEFS__wait_nms_idle_data_t *>(action);
-            action_length_local = sizeof(CONTEXT_SWITCH_DEFS__wait_nms_idle_data_t);
+        case CONTEXT_SWITCH_DEFS__ACTION_TYPE_WAIT_FOR_NMS:
+            data_json = *reinterpret_cast<CONTEXT_SWITCH_DEFS__wait_nms_data_t *>(action);
+            action_length_local = sizeof(CONTEXT_SWITCH_DEFS__wait_nms_data_t);
             break;
         case CONTEXT_SWITCH_DEFS__ACTION_TYPE_OUTPUT_CHANNEL_TRANSFER_DONE_INTERRUPT:
             data_json = *reinterpret_cast<CONTEXT_SWITCH_DEFS__vdma_dataflow_interrupt_data_t *>(action);
@@ -205,8 +205,8 @@ Expected<ordered_json> DownloadActionListCommand::parse_action_data(uint32_t bas
             action_length_local = sizeof(CONTEXT_SWITCH_DEFS__module_config_done_interrupt_data_t);
             break;
         case CONTEXT_SWITCH_DEFS__ACTION_TYPE_APPLICATION_CHANGE_INTERRUPT:
-            data_json = *reinterpret_cast<CONTEXT_SWITCH_DEFS__application_change_interrupt_data_t *>(action);
-            action_length_local = sizeof(CONTEXT_SWITCH_DEFS__application_change_interrupt_data_t);
+            data_json = json({});
+            action_length_local = 0;
             break;
         case CONTEXT_SWITCH_DEFS__ACTION_TYPE_FETCH_CFG_CHANNEL_DESCRIPTORS:
             data_json = *reinterpret_cast<CONTEXT_SWITCH_DEFS__fetch_cfg_channel_descriptors_action_data_t *>(action);
@@ -303,6 +303,10 @@ Expected<ordered_json> DownloadActionListCommand::parse_action_data(uint32_t bas
         case CONTEXT_SWITCH_DEFS__ACTION_TYPE_OPEN_BOUNDARY_OUTPUT_CHANNEL:
             data_json = *reinterpret_cast<CONTEXT_SWITCH_DEFS__open_boundary_output_channel_data_t *>(action);
             action_length_local = sizeof(CONTEXT_SWITCH_DEFS__open_boundary_output_channel_data_t);
+            break;
+        case CONTEXT_SWITCH_DEFS__ACTION_TYPE_ENABLE_NMS:
+            data_json = *reinterpret_cast<CONTEXT_SWITCH_DEFS__enable_nms_action_t *>(action);
+            action_length_local = sizeof(CONTEXT_SWITCH_DEFS__enable_nms_action_t);
             break;
         case CONTEXT_SWITCH_DEFS__ACTION_TYPE_COUNT:
             // Fallthrough

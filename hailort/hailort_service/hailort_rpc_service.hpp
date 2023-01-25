@@ -28,7 +28,7 @@
 namespace hailort
 {
 
-class HailoRtRpcService final : public HailoRtRpc::Service {
+class HailoRtRpcService final : public ProtoHailoRtRpc::Service {
 
 public:
     virtual grpc::Status client_keep_alive(grpc::ServerContext *ctx, const keepalive_Request *request,
@@ -45,6 +45,8 @@ public:
         VDevice_configure_Reply* reply) override;
     virtual grpc::Status VDevice_get_physical_devices_ids(grpc::ServerContext*, const VDevice_get_physical_devices_ids_Request* request,
         VDevice_get_physical_devices_ids_Reply* reply) override;
+    virtual grpc::Status VDevice_get_default_streams_interface(grpc::ServerContext*, const VDevice_get_default_streams_interface_Request* request,
+        VDevice_get_default_streams_interface_Reply* reply) override;
 
     virtual grpc::Status InputVStreams_create(grpc::ServerContext *, const VStream_create_Request *request,
          VStreams_create_Reply *reply) override;
@@ -68,6 +70,10 @@ public:
         VStream_name_Reply *reply) override;
     virtual grpc::Status OutputVStream_name(grpc::ServerContext*, const VStream_name_Request *request,
         VStream_name_Reply *reply) override;
+    virtual grpc::Status InputVStream_network_name(grpc::ServerContext*, const VStream_network_name_Request *request,
+        VStream_network_name_Reply *reply) override;
+    virtual grpc::Status OutputVStream_network_name(grpc::ServerContext*, const VStream_network_name_Request *request,
+        VStream_network_name_Reply *reply) override;
     virtual grpc::Status InputVStream_abort(grpc::ServerContext*, const VStream_abort_Request *request,
         VStream_abort_Reply *reply) override;
     virtual grpc::Status OutputVStream_abort(grpc::ServerContext*, const VStream_abort_Request *request,
@@ -92,6 +98,9 @@ public:
     virtual grpc::Status ConfiguredNetworkGroup_make_output_vstream_params(grpc::ServerContext*,
         const ConfiguredNetworkGroup_make_output_vstream_params_Request *request,
         ConfiguredNetworkGroup_make_output_vstream_params_Reply *reply) override;
+    virtual grpc::Status ConfiguredNetworkGroup_make_output_vstream_params_groups(grpc::ServerContext*,
+        const ConfiguredNetworkGroup_make_output_vstream_params_groups_Request *request,
+        ConfiguredNetworkGroup_make_output_vstream_params_groups_Reply *reply) override;
     virtual grpc::Status ConfiguredNetworkGroup_name(grpc::ServerContext*,
         const ConfiguredNetworkGroup_name_Request *request,
         ConfiguredNetworkGroup_name_Reply *reply) override;
@@ -125,6 +134,12 @@ public:
     virtual grpc::Status ConfiguredNetworkGroup_get_latency_measurement(grpc::ServerContext*,
         const ConfiguredNetworkGroup_get_latency_measurement_Request *request,
         ConfiguredNetworkGroup_get_latency_measurement_Reply *reply) override;
+    virtual grpc::Status ConfiguredNetworkGroup_is_multi_context(grpc::ServerContext*,
+        const ConfiguredNetworkGroup_is_multi_context_Request *request,
+        ConfiguredNetworkGroup_is_multi_context_Reply *reply) override;
+    virtual grpc::Status ConfiguredNetworkGroup_get_config_params(grpc::ServerContext*,
+        const ConfiguredNetworkGroup_get_config_params_Request *request,
+        ConfiguredNetworkGroup_get_config_params_Reply *reply) override;
 };
 
 }

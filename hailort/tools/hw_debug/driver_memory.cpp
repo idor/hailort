@@ -4,6 +4,7 @@
  */
 
 #include "driver_memory.hpp"
+#include "mercury_fields.hpp"
 
 DriverMemorySource::DriverMemorySource(std::shared_ptr<HailoRTDriver> driver, HailoRTDriver::MemoryType memory_type) :
     m_driver(driver),
@@ -64,7 +65,7 @@ struct VdmaChannelData {
 class VdmaChannelField : public Field {
 public:
     VdmaChannelField() :
-        Field("channel")
+        Field("channel", "vDMA channel register")
     {}
 
     virtual size_t elements_count() const
@@ -114,4 +115,13 @@ VdmaMemorySource::VdmaMemorySource(std::shared_ptr<HailoRTDriver> driver, Memory
 size_t VdmaMemorySource::total_size() const
 {
     return VDMA_CHANNELS_COUNT * sizeof(VdmaChannelData);
+}
+
+DramDmaEngineMemorySource::DramDmaEngineMemorySource(std::shared_ptr<HailoRTDriver> driver, MemoryType memory_type) :
+    DriverMemorySource(std::move(driver), memory_type)
+{
+    add_field(std::make_shared<QddcField>());
+    add_field(std::make_shared<QsdcField>());
+    add_field(std::make_shared<QdmcField>());
+    add_field(std::make_shared<QsmcField>());
 }

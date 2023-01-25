@@ -77,11 +77,6 @@ hailo_status ChannelAllocator::free_channel_index(const LayerIdentifier &layer_i
     return HAILO_SUCCESS;
 }
 
-const std::set<vdma::ChannelId> &ChannelAllocator::get_boundary_channel_ids() const
-{
-    return m_boundary_channel_ids;
-}
-
 const std::set<vdma::ChannelId> &ChannelAllocator::get_internal_channel_ids() const
 {
     return m_internal_channel_ids;

@@ -15,6 +15,7 @@ using namespace std;
 #include "vdevice_api.hpp"
 #include "device_api.hpp"
 #include "quantization_api.hpp"
+#include "net_flow_api.hpp"
 
 #include "utils.hpp"
 #include "utils.h"
@@ -322,7 +323,7 @@ PYBIND11_MODULE(_pyhailort, m) {
     py::class_<hailo_debug_notification_message_t>(m, "DebugNotificationMessage")
         .def_readonly("connection_status", &hailo_debug_notification_message_t::connection_status)
         .def_readonly("connection_type", &hailo_debug_notification_message_t::connection_type)
-        .def_readonly("pcie_is_active", &hailo_debug_notification_message_t::pcie_is_active)
+        .def_readonly("vdma_is_active", &hailo_debug_notification_message_t::vdma_is_active)
         .def_readonly("host_port", &hailo_debug_notification_message_t::host_port)
         .def_readonly("host_ip_addr", &hailo_debug_notification_message_t::host_ip_addr)
         ;
@@ -534,6 +535,10 @@ PYBIND11_MODULE(_pyhailort, m) {
         .value("RGB888", HAILO_FORMAT_ORDER_RGB888)
         .value("NCHW", HAILO_FORMAT_ORDER_NCHW)
         .value("YUY2", HAILO_FORMAT_ORDER_YUY2)
+        .value("NV12", HAILO_FORMAT_ORDER_NV12)
+        .value("YYUV", HAILO_FORMAT_ORDER_HAILO_YYUV)
+        .value("NV21", HAILO_FORMAT_ORDER_NV21)
+        .value("YYVU", HAILO_FORMAT_ORDER_HAILO_YYVU)
         ;
 
     py::enum_<hailo_format_flags_t>(m, "FormatFlags", py::arithmetic())
@@ -943,6 +948,10 @@ PYBIND11_MODULE(_pyhailort, m) {
         .value("CPU1", HAILO_CPU_ID_1)
         ;
 
+    py::enum_<hailo_sleep_state_t>(m, "SleepState")
+        .value("SLEEP_STATE_SLEEPING", HAILO_SLEEP_STATE_SLEEPING)
+        .value("SLEEP_STATE_AWAKE", HAILO_SLEEP_STATE_AWAKE)
+        ;
 
     py::class_<uint32_t>(m, "HailoRTDefaults")
         .def_static("HAILO_INFINITE", []() { return HAILO_INFINITE;} )
@@ -1067,6 +1076,7 @@ PYBIND11_MODULE(_pyhailort, m) {
     VStream_api_initialize_python_module(m);
     VDevice_api_initialize_python_module(m);
     DeviceWrapper::add_to_python_module(m);
+    hailort::net_flow::NetFlow_api_initialize_python_module(m);
 
     #if defined(__GNUC__)
     TrafficControlUtilWrapper::add_to_python_module(m);

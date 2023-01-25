@@ -52,7 +52,7 @@ struct HailoNetProperties final
 {
 public:
     HailoNetProperties() : m_device_id(nullptr), m_hef_path(nullptr), m_network_name(nullptr), m_batch_size(HAILO_DEFAULT_BATCH_SIZE),
-        m_is_active(false), m_device_count(0), m_vdevice_key(DEFAULT_VDEVICE_KEY), m_scheduling_algorithm(HAILO_SCHEDULING_ALGORITHM_NONE),
+        m_is_active(false), m_device_count(0), m_vdevice_key(DEFAULT_VDEVICE_KEY), m_scheduling_algorithm(HAILO_SCHEDULING_ALGORITHM_ROUND_ROBIN),
         m_scheduler_timeout_ms(HAILO_DEFAULT_SCHEDULER_TIMEOUT_MS), m_scheduler_threshold(HAILO_DEFAULT_SCHEDULER_THRESHOLD),
         m_multi_process_service(HAILO_DEFAULT_MULTI_PROCESS_SERVICE)
     {}

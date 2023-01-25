@@ -7,14 +7,20 @@
 #include <regex>
 #include <cassert>
 
-Field::Field(const std::string &name) :
-    m_name(name)
+Field::Field(std::string &&name, std::string &&description) :
+    m_name(std::move(name)),
+    m_description(std::move(description))
 {}
 
 
-std::string Field::name() const
+const std::string &Field::name() const
 {
     return m_name;
+}
+
+const std::string &Field::description() const
+{
+    return m_description;
 }
 
 const std::map<std::string, std::shared_ptr<Field>> &MemorySource::get_fields() const
@@ -27,6 +33,8 @@ void MemorySource::add_field(std::shared_ptr<Field> field)
     assert(m_fields.find(field->name()) == m_fields.end());
     m_fields[field->name()] = field;
 }
+
+constexpr size_t PrintCommand::PRINT_ALL;
 
 PrintCommand::PrintCommand(std::shared_ptr<MemorySource> memory) :
     ShellCommand("print", "p", get_help(memory->get_fields())),
@@ -48,19 +56,36 @@ ShellResult PrintCommand::execute(const std::vector<std::string> &args)
     if (fields.end() == field_it) {
         throw std::runtime_error(fmt::format("Field {} does not exist", field_name));
     }
-
     const auto &field = field_it->second;
-    if (index >= field->elements_count()) {
-        throw std::runtime_error(fmt::format("Index {} is out of range (max {})", index, field->elements_count()));
+
+    if (index == PRINT_ALL) {
+        std::vector<ShellResult> results;
+        results.reserve(field->elements_count());
+        for (size_t i = 0; i < field->elements_count(); i++) {
+            results.emplace_back(ShellResult(field->print_element(*m_memory, i)));
+        }
+        return ShellResult(results);
     }
-    return ShellResult(field->print_element(*m_memory, index));
+    else {
+        if (index >= field->elements_count()) {
+            throw std::runtime_error(fmt::format("Index {} is out of range (max {})", index, field->elements_count()));
+        }
+        return ShellResult(field->print_element(*m_memory, index));
+    }
 }
 
 std::pair<std::string, size_t> PrintCommand::parse_field(const std::string &field_arg)
 {
-    static const std::regex pattern("([a-zA-Z]+)\\[([0-9]+)\\]");
+    static const std::regex field_name_pattern("([a-zA-Z]+)");
+    static const std::regex array_access_pattern("([a-zA-Z]+)\\[([0-9]+)\\]");
     std::smatch match;
-    if (std::regex_match(field_arg, match, pattern)) {
+
+    if (std::regex_match(field_arg, match, field_name_pattern)) {
+        assert(match.size() == 2);
+        const auto field = match[1];
+        return std::make_pair(field, PRINT_ALL);
+    }
+    else if (std::regex_match(field_arg, match, array_access_pattern)) {
         assert(match.size() == 3);
         const auto &field = match[1];
         const auto index = std::atoi(match[2].str().c_str());
@@ -73,16 +98,9 @@ std::pair<std::string, size_t> PrintCommand::parse_field(const std::string &fiel
 
 std::string PrintCommand::get_help(const std::map<std::string, std::shared_ptr<Field>> &fields)
 {
-    std::string help = "Pretty print some field, usage: print <field-name>[<index>]. Fields: {";
-
-    size_t index = 0;
+    std::string help = "Pretty print some field, usage: print <field-name>[<index>]. Fields:\n";
     for (auto field : fields) {
-        help += field.first;
-        if (index != fields.size() - 1) {
-            help += ",";
-        }
-        index++;
+        help += fmt::format("\t{} - {}\n", field.second->name(), field.second->description());
     }
-    help += "}.";
     return help;
 }

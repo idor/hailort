@@ -22,7 +22,7 @@ namespace hailort
 
 class CoreDevice : public VdmaDevice {
 public:
-    virtual ~CoreDevice();
+    virtual ~CoreDevice() = default;
     static bool is_loaded();
     static Expected<std::unique_ptr<CoreDevice>> create();
 
@@ -51,7 +51,7 @@ protected:
     virtual hailo_status reset_impl(CONTROL_PROTOCOL__reset_type_t reset_type) override;
 
 private:
-    CoreDevice(HailoRTDriver &&driver, hailo_status &status);
+    CoreDevice(HailoRTDriver &&driver, hailo_status &status, const std::string &device_id);
 };
 
 

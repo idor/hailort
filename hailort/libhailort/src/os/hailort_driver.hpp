@@ -16,6 +16,7 @@
 #include "os/file_descriptor.hpp"
 #include "vdma/channel_id.hpp"
 #include "common/utils.hpp"
+#include "hailo_ioctl_common.h"
 
 #include <mutex>
 #include <thread>
@@ -32,7 +33,7 @@ namespace hailort
 #define DEVICE_NODE_NAME       "hailo"
 
 #define PENDING_BUFFERS_SIZE (128)
-static_assert((0 == ((PENDING_BUFFERS_SIZE - 1) &  PENDING_BUFFERS_SIZE)), "PENDING_BUFFERS_SIZE must be a power of 2");
+static_assert((0 == ((PENDING_BUFFERS_SIZE - 1) & PENDING_BUFFERS_SIZE)), "PENDING_BUFFERS_SIZE must be a power of 2");
 
 #define MIN_ACTIVE_TRANSFERS_SCALE (2)
 #define MAX_ACTIVE_TRANSFERS_SCALE (4)
@@ -41,8 +42,6 @@ static_assert((0 == ((PENDING_BUFFERS_SIZE - 1) &  PENDING_BUFFERS_SIZE)), "PEND
 
 // When measuring latency, each channel is capable of PENDING_BUFFERS_SIZE active transfers, each transfer raises max of 2 timestamps
 #define MAX_IRQ_TIMESTAMPS_SIZE (PENDING_BUFFERS_SIZE * 2)
-
-#define DESCRIPTORS_IN_BUFFER(buffer_size, desc_page_size) (((buffer_size) + (desc_page_size) - 1) / (desc_page_size))
 
 #define PCIE_EXPECTED_MD5_LENGTH (16)
 
@@ -198,7 +197,7 @@ public:
      * Configure vdma channel descriptors to point to the given user address.
      */
     hailo_status descriptors_list_bind_vdma_buffer(uintptr_t desc_handle, VdmaBufferHandle buffer_handle,
-        uint16_t desc_page_size, uint8_t channel_index);
+        uint16_t desc_page_size, uint8_t channel_index, size_t offset);
 
     Expected<uintptr_t> vdma_low_memory_buffer_alloc(size_t size);
     hailo_status vdma_low_memory_buffer_free(uintptr_t buffer_handle);

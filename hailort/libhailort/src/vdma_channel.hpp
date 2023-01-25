@@ -30,26 +30,13 @@
 namespace hailort
 {
 
-class VdmaChannel;
-class PendingBufferState final
-{
-public:
-    PendingBufferState(VdmaChannel &vdma_channel, size_t next_buffer_desc_num) : m_vdma_channel(vdma_channel),
-        m_next_buffer_desc_num(next_buffer_desc_num) {}
-    hailo_status finish(std::chrono::milliseconds timeout, std::unique_lock<std::mutex> &lock, uint16_t max_batch_size);
-
-private:
-    VdmaChannel &m_vdma_channel;
-    size_t m_next_buffer_desc_num;
-};
-
 class VdmaChannel final
 {
 public:
     using Direction = HailoRTDriver::DmaDirection;
 
     static Expected<VdmaChannel> create(vdma::ChannelId channel_id, Direction direction, HailoRTDriver &driver,
-        uint16_t requested_desc_page_size, uint32_t stream_index = 0, LatencyMeterPtr latency_meter = nullptr, 
+        uint16_t requested_desc_page_size, const std::string &stream_name = "", LatencyMeterPtr latency_meter = nullptr,
         uint16_t transfers_per_axi_intr = 1);
     ~VdmaChannel();
 
@@ -64,8 +51,9 @@ public:
     hailo_status wait(size_t buffer_size, std::chrono::milliseconds timeout);
 
     hailo_status transfer(void *buf, size_t count);
-    hailo_status write_buffer(const MemoryView &buffer, std::chrono::milliseconds timeout);
-    Expected<PendingBufferState> send_pending_buffer();
+    // Either write_buffer + send_pending_buffer or transfer (h2d) should be used on a given channel, not both
+    hailo_status write_buffer(const MemoryView &buffer, std::chrono::milliseconds timeout, const std::function<bool()> &should_cancel);
+    hailo_status send_pending_buffer();
     hailo_status trigger_channel_completion(uint16_t hw_num_processed, const std::function<void(uint32_t)> &callback);
     hailo_status allocate_resources(uint32_t descs_count);
     // Call for boundary channels, after the fw has activted them (via ResourcesManager::enable_state_machine)
@@ -73,8 +61,6 @@ public:
     // Libhailort registers the channels to the driver and the FW is responsible for opening and closing them
     hailo_status register_fw_controlled_channel();
     hailo_status unregister_fw_controlled_channel();
-    void mark_d2h_callbacks_for_shutdown();
-    void unmark_d2h_callbacks_for_shutdown();
     // For D2H channels, we don't buffer data
     // Hence there's nothing to be "flushed" and the function will return with HAILO_SUCCESS
     hailo_status flush(const std::chrono::milliseconds &timeout);
@@ -82,13 +68,28 @@ public:
     hailo_status set_transfers_per_axi_intr(uint16_t transfers_per_axi_intr);
     hailo_status inc_num_available_for_ddr(uint16_t value, uint32_t size_mask);
     Expected<uint16_t> get_hw_num_processed_ddr(uint32_t size_mask);
-    
+
     hailo_status stop_channel();
     uint16_t get_page_size();
     Expected<CONTROL_PROTOCOL__host_buffer_info_t> get_boundary_buffer_info(uint32_t transfer_size);
 
     hailo_status abort();
     hailo_status clear_abort();
+
+    class BufferState {
+    public:
+        std::vector<std::pair<uint16_t, Buffer>> desc_buffer_pairing;
+        uint16_t num_avail;
+        uint16_t num_processed;
+        uint16_t hw_num_avail;
+        uint16_t hw_num_processed;
+    };
+    // Assumes that the channel is idle; doesn't block changes to the channel
+    // To be used for debugging purposes
+    Expected<BufferState> get_buffer_state();
+
+    // To be used for debugging purposes
+    hailo_status sync_state(std::chrono::milliseconds timeout);
 
     vdma::ChannelId get_channel_id() const
     {
@@ -100,8 +101,6 @@ public:
     Expected<size_t> get_h2d_pending_frames_count();
     Expected<size_t> get_d2h_pending_descs_count();
 
-    hailo_status reset_offset_of_pending_frames();
-
     VdmaChannel(const VdmaChannel &other) = delete;
     VdmaChannel &operator=(const VdmaChannel &other) = delete;
     VdmaChannel(VdmaChannel &&other) noexcept;
@@ -112,7 +111,7 @@ public:
 
     hailo_status register_for_d2h_interrupts(const std::function<void(uint32_t)> &callback);
 
-    friend class PendingBufferState;
+    void notify_all();
 
 private:
     struct PendingBuffer {
@@ -139,6 +138,13 @@ private:
         // TODO: Consider C11 stdatomic
         circbuf_t m_descs;
         int m_d2h_read_desc_index;
+        // TODO: We want to refactor this class + VdmaChannel so that logic related to write_buffer + send_pending_buffer will
+        //       be in another class.
+        // Points to the tail of the desc list when the channel is stopped (starts at zero)
+        // When calling VdmaChannel::write_buffer, buffers will be appended relative to this index (+ the current num_avail)
+        // We'll set it if there are pending buffers to be sent or if m_should_reprogram_buffer is set
+        int m_previous_tail;
+        bool m_should_reprogram_buffer;
         // Contains the last num_processed of the last interrupt (only used on latency measurement)
         uint16_t m_last_timestamp_num_processed;
         size_t m_accumulated_transfers;
@@ -148,7 +154,7 @@ private:
     hailo_status register_channel_to_driver();
     hailo_status unregister_for_d2h_interrupts(std::unique_lock<State> &lock);
 
-    VdmaChannel(vdma::ChannelId channel_id, Direction direction, HailoRTDriver &driver, uint32_t stream_index,
+    VdmaChannel(vdma::ChannelId channel_id, Direction direction, HailoRTDriver &driver, const std::string &stream_name,
         LatencyMeterPtr latency_meter, uint16_t desc_page_size, uint16_t transfers_per_axi_intr, hailo_status &status);
 
     hailo_status allocate_buffer(const uint32_t buffer_size);
@@ -202,16 +208,13 @@ private:
     // TODO: remove the unique_ptr, instead allocate the buffer in the ctor (needs to move ddr channel to
     // other class)
     std::unique_ptr<vdma::SgBuffer> m_buffer;
-    uint32_t m_stream_index;
+    const std::string m_stream_name;
     LatencyMeterPtr m_latency_meter;
 
     MmapBuffer<State> m_state;
     // Unique channel handle, may be changed between registration to driver. This object is shared
     // because multiple processes can enable/disable vdma channel (which changes the channel)
     MmapBuffer<HailoRTDriver::VdmaChannelHandle> m_channel_handle;
-
-    // TODO: Remove after HRT-7838
-    Buffer m_buffer_for_frames_shift;
 
     bool m_channel_enabled;
     
@@ -223,7 +226,6 @@ private:
     std::condition_variable_any m_can_read_buffer_cv;
     std::atomic_bool m_is_waiting_for_channel_completion;
     std::atomic_bool m_is_aborted_by_internal_source;
-    std::atomic_bool m_d2h_callbacks_marked_for_shutdown;
 };
 
 } /* namespace hailort */

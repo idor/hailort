@@ -16,8 +16,8 @@
 #include "network_group_scheduler.hpp"
 #include "common/barrier.hpp"
 
-#include <queue>
 #include <mutex>
+#include <queue>
 
 namespace hailort
 {
@@ -43,8 +43,8 @@ public:
     bool has_more_than_one_ng_instance() const;
     size_t instances_count() const;
     hailo_status wait_for_write(multiplexer_ng_handle_t network_group_handle);
-    hailo_status signal_write_finish();
-    hailo_status wait_for_read(multiplexer_ng_handle_t network_group_handle, const std::string &stream_name,
+    hailo_status signal_write_finish(multiplexer_ng_handle_t network_group_handle);
+    Expected<uint32_t> wait_for_read(multiplexer_ng_handle_t network_group_handle, const std::string &stream_name,
         const std::chrono::milliseconds &timeout);
     hailo_status signal_read_finish(multiplexer_ng_handle_t network_group_handle);
     hailo_status enable_network_group(multiplexer_ng_handle_t network_group_handle);
@@ -67,7 +67,7 @@ private:
 
     multiplexer_ng_handle_t m_next_to_write;
     std::unordered_map<multiplexer_ng_handle_t, std::shared_ptr<Barrier>> m_write_barriers;
-    std::queue<multiplexer_ng_handle_t> m_order_queue;
+    std::deque<multiplexer_ng_handle_t> m_order_queue;
     std::mutex m_writing_mutex;
     std::condition_variable m_writing_cv;
     multiplexer_ng_handle_t m_currently_writing;
@@ -77,11 +77,15 @@ private:
     std::mutex m_reading_mutex;
     std::condition_variable m_reading_cv;
     std::atomic_uint32_t m_read_streams_count;
+    std::unordered_map<std::string, std::atomic_uint32_t> m_num_frames_to_drain;
+    multiplexer_ng_handle_t m_next_to_read_after_drain;
 
     std::unordered_map<multiplexer_ng_handle_t, std::unordered_map<std::string, std::atomic_bool>> m_can_output_vstream_read;
     std::unordered_map<multiplexer_ng_handle_t, std::atomic_bool> m_can_network_group_read;
 
     bool can_network_group_read(multiplexer_ng_handle_t network_group_handle);
+    uint32_t get_frame_count_to_drain(multiplexer_ng_handle_t network_group_handle);
+    uint32_t drain_aborted_in_order_queue(multiplexer_ng_handle_t network_group_handle, const std::string &stream_name, uint32_t max_drain_count);
 
     class RunOnceForStream final
     {

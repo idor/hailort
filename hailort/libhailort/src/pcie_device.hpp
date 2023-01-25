@@ -29,7 +29,7 @@ public:
         bool log_on_failure);
     static Expected<std::string> pcie_device_info_to_string(const hailo_pcie_device_info_t &device_info);
 
-    virtual ~PcieDevice();
+    virtual ~PcieDevice() = default;
 
     virtual hailo_status reset_impl(CONTROL_PROTOCOL__reset_type_t reset_type) override;
     virtual hailo_status direct_write_memory(uint32_t address, const void *buffer, uint32_t size) override;
@@ -60,7 +60,8 @@ public:
     virtual const char* get_dev_id() const override;
 
 private:
-    PcieDevice(HailoRTDriver &&driver, const hailo_pcie_device_info_t &device_info, hailo_status &status);
+    PcieDevice(HailoRTDriver &&driver, const hailo_pcie_device_info_t &device_info, hailo_status &status,
+        const std::string &device_id);
 
     hailo_status close_all_vdma_channels();
 

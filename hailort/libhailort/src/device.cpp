@@ -332,6 +332,11 @@ hailo_status Device::test_chip_memories()
     return Control::test_chip_memories(*this);
 }
 
+hailo_status Device::set_sleep_state(hailo_sleep_state_t sleep_state)
+{
+    return Control::set_sleep_state(*this, sleep_state);
+}
+
 hailo_status Device::direct_write_memory(uint32_t address, const void *buffer, uint32_t size)
 {
     (void) address;
@@ -493,6 +498,61 @@ hailo_status Device::set_context_action_list_timestamp_batch(uint16_t batch_inde
 {
     static const bool ENABLE_USER_CONFIG = true;
     return Control::config_context_switch_timestamp(*this, batch_index, ENABLE_USER_CONFIG);
+}
+
+hailo_status Device::set_context_switch_breakpoint(uint8_t breakpoint_id, bool break_at_any_network_group_index,
+    uint8_t network_group_index, bool break_at_any_batch_index, uint16_t batch_index, bool break_at_any_context_index,
+    uint8_t context_index, bool break_at_any_action_index, uint16_t action_index) 
+{
+    CONTROL_PROTOCOL__context_switch_breakpoint_data_t breakpoint_data = {
+        break_at_any_network_group_index,
+        network_group_index,
+        break_at_any_batch_index,
+        batch_index,
+        break_at_any_context_index,
+        context_index,
+        break_at_any_action_index,
+        action_index};
+
+    auto status = Control::config_context_switch_breakpoint(*this, breakpoint_id,
+        CONTROL_PROTOCOL__CONTEXT_SWITCH_BREAKPOINT_CONTROL_SET, &breakpoint_data);
+    CHECK_SUCCESS(status, "Failed Setting context switch breakpoint in continue breakpoint");
+
+    return HAILO_SUCCESS;
+}
+
+hailo_status Device::continue_context_switch_breakpoint(uint8_t breakpoint_id) 
+{
+    CONTROL_PROTOCOL__context_switch_breakpoint_data_t breakpoint_data = {false, 0, false, 0, false, 0, false, 0};
+
+    auto status = Control::config_context_switch_breakpoint(*this, breakpoint_id, 
+            CONTROL_PROTOCOL__CONTEXT_SWITCH_BREAKPOINT_CONTROL_CONTINUE, &breakpoint_data);
+    CHECK_SUCCESS(status, "Failed Setting context switch breakpoint in continue breakpoint");
+
+    return HAILO_SUCCESS;
+}
+
+hailo_status Device::clear_context_switch_breakpoint(uint8_t breakpoint_id) 
+{
+    CONTROL_PROTOCOL__context_switch_breakpoint_data_t breakpoint_data = {false, 0, false, 0, false, 0, false, 0};
+
+    auto status = Control::config_context_switch_breakpoint(*this, breakpoint_id,
+            CONTROL_PROTOCOL__CONTEXT_SWITCH_BREAKPOINT_CONTROL_CLEAR, &breakpoint_data);
+    CHECK_SUCCESS(status, "Failed Setting context switch breakpoint in clear breakpoint");
+
+    return HAILO_SUCCESS;
+}
+
+Expected<uint8_t> Device::get_context_switch_breakpoint_status(uint8_t breakpoint_id)
+{
+    CONTROL_PROTOCOL__context_switch_debug_sys_status_t breakpoint_status = 
+        CONTROL_PROTOCOL__CONTEXT_SWITCH_DEBUG_SYS_STATUS_COUNT;
+
+    auto status = Control::get_context_switch_breakpoint_status(*this, breakpoint_id,
+            &breakpoint_status);
+    CHECK_SUCCESS_AS_EXPECTED(status, "Failed getting context switch breakpoint");
+
+    return static_cast<uint8_t>(breakpoint_status);
 }
 
 Expected<std::unique_ptr<Device>> Device::create_core()

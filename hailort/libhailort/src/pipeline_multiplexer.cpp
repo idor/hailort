@@ -19,7 +19,8 @@ PipelineMultiplexer::PipelineMultiplexer() :
     m_order_queue(),
     m_currently_writing(INVALID_NETWORK_GROUP_HANDLE),
     m_written_streams_count(0),
-    m_read_streams_count(0)
+    m_read_streams_count(0),
+    m_next_to_read_after_drain(INVALID_NETWORK_GROUP_HANDLE)
 {}
 
 bool PipelineMultiplexer::should_use_multiplexer()
@@ -80,6 +81,8 @@ hailo_status PipelineMultiplexer::wait_for_write(multiplexer_ng_handle_t network
         assert(contains(m_write_barriers, network_group_handle));
         barrier = m_write_barriers[network_group_handle];
     }
+    // TODO: This has no timeout
+    // TODO: HRT-8634
     barrier->arrive_and_wait();
     {
         std::unique_lock<std::mutex> lock(m_writing_mutex);
@@ -117,17 +120,12 @@ hailo_status PipelineMultiplexer::wait_for_write(multiplexer_ng_handle_t network
         m_is_waiting_to_write[network_group_handle] = false;
 
         if (m_should_ng_stop[network_group_handle]) {
-            return HAILO_STREAM_INTERNAL_ABORT;
+            return HAILO_STREAM_ABORTED_BY_USER;
         }
 
         if (INVALID_NETWORK_GROUP_HANDLE == m_currently_writing) {
             m_currently_writing = network_group_handle;
-            {
-                std::unique_lock<std::mutex> reading_lock(m_reading_mutex);
-                m_order_queue.push(m_currently_writing);
-                m_next_to_write = m_currently_writing;
-            }
-            m_reading_cv.notify_all();
+            m_next_to_write = m_currently_writing;
         }
     }
     m_writing_cv.notify_all();
@@ -137,6 +135,10 @@ hailo_status PipelineMultiplexer::wait_for_write(multiplexer_ng_handle_t network
 
 bool PipelineMultiplexer::can_network_group_read(multiplexer_ng_handle_t network_group_handle)
 {
+    if (m_should_ng_stop[network_group_handle]) {
+        return false;
+    }
+
     if (!contains(m_can_network_group_read, network_group_handle)) {
         return true;
     }
@@ -144,7 +146,7 @@ bool PipelineMultiplexer::can_network_group_read(multiplexer_ng_handle_t network
     return m_can_network_group_read[network_group_handle];
 }
 
-hailo_status PipelineMultiplexer::signal_write_finish()
+hailo_status PipelineMultiplexer::signal_write_finish(multiplexer_ng_handle_t network_group_handle)
 {
     std::unique_lock<std::mutex> lock(m_writing_mutex);
     m_written_streams_count++;
@@ -155,6 +157,12 @@ hailo_status PipelineMultiplexer::signal_write_finish()
         m_next_to_write++;
         m_next_to_write %= static_cast<uint32_t>(instances_count());
 
+        {
+            std::unique_lock<std::mutex> reading_lock(m_reading_mutex);
+            m_order_queue.push_back(network_group_handle);
+        }
+        m_reading_cv.notify_all();
+
         lock.unlock();
         m_writing_cv.notify_all();
     }
@@ -162,19 +170,27 @@ hailo_status PipelineMultiplexer::signal_write_finish()
     return HAILO_SUCCESS;
 }
 
-hailo_status PipelineMultiplexer::wait_for_read(multiplexer_ng_handle_t network_group_handle, const std::string &stream_name,
+Expected<uint32_t> PipelineMultiplexer::wait_for_read(multiplexer_ng_handle_t network_group_handle, const std::string &stream_name,
     const std::chrono::milliseconds &timeout)
 {
     std::unique_lock<std::mutex> lock(m_reading_mutex);
+    uint32_t drain_frames = 0;
 
     assert(contains(m_should_ng_stop, network_group_handle));
     assert(contains(m_is_stream_reading, network_group_handle));
     assert(contains(m_is_stream_reading[network_group_handle], stream_name));
 
-
-    auto wait_res = m_reading_cv.wait_for(lock, timeout, [this, network_group_handle, stream_name] {
-
+    auto wait_res = m_reading_cv.wait_for(lock, timeout, [this, network_group_handle, stream_name, &drain_frames] {
         if (m_should_ng_stop[network_group_handle]) {
+            return true;
+        }
+
+        if (m_is_stream_reading[network_group_handle][stream_name]) {
+            return false;
+        }
+
+        if (m_next_to_read_after_drain == network_group_handle) {
+            drain_frames = m_num_frames_to_drain[stream_name];
             return true;
         }
 
@@ -183,25 +199,73 @@ hailo_status PipelineMultiplexer::wait_for_read(multiplexer_ng_handle_t network_
         }
 
         if (m_order_queue.front() != network_group_handle) {
-            return false;
-        }
+            if (!m_should_ng_stop[m_order_queue.front()]) {
+                return false;
+            }
 
-        if (m_is_stream_reading[network_group_handle][stream_name]) {
-            return false;
+            uint32_t max_drain_count = get_frame_count_to_drain(network_group_handle);
+            if (0 == max_drain_count) {
+                return false;
+            }
+
+            drain_frames = drain_aborted_in_order_queue(network_group_handle, stream_name, max_drain_count);
         }
 
         return true;
     });
-    if (!wait_res) {
-        return HAILO_TIMEOUT;
-    }
+    CHECK_AS_EXPECTED(wait_res, HAILO_TIMEOUT, "{} (D2H) failed with status={}, timeout={}ms", stream_name, HAILO_TIMEOUT, timeout.count());
+
     if (m_should_ng_stop[network_group_handle]) {
-        return HAILO_STREAM_INTERNAL_ABORT;
+        return make_unexpected(HAILO_STREAM_ABORTED_BY_USER);
     }
 
     m_is_stream_reading[network_group_handle][stream_name] = true;
 
-    return HAILO_SUCCESS;
+    return drain_frames;
+}
+
+uint32_t PipelineMultiplexer::get_frame_count_to_drain(multiplexer_ng_handle_t network_group_handle)
+{
+    uint32_t drain_count = 0;
+    for (const auto &handle : m_order_queue) {
+        if (!m_should_ng_stop[handle]) {
+            if (handle == network_group_handle) {
+                // Current instance is in the front after draining
+                break;
+            } else {
+                // Someone else should drain these frames, the current instance won't be in front after draining
+                return 0;
+            }
+        }
+
+        drain_count++;
+    }
+
+    return drain_count;
+}
+
+uint32_t PipelineMultiplexer::drain_aborted_in_order_queue(multiplexer_ng_handle_t network_group_handle, const std::string &stream_name,
+    uint32_t max_drain_count)
+{
+    // In case of multiple outputs where one or more already read the frame we need to drain one less frame
+     for (auto &name_flag_pair : m_is_stream_reading[m_order_queue.front()]) {
+        if (name_flag_pair.second) {
+            m_num_frames_to_drain[name_flag_pair.first] = max_drain_count - 1;
+        } else {
+            m_num_frames_to_drain[name_flag_pair.first] = max_drain_count;
+        }
+    }
+
+    m_next_to_read_after_drain = network_group_handle;
+    m_read_streams_count = 0;
+    for (uint32_t i = 0; i < max_drain_count; i++) {
+        for (auto &name_flag_pair : m_is_stream_reading[m_order_queue.front()]) {
+            name_flag_pair.second = false;
+        }
+        m_order_queue.pop_front();
+    }
+
+    return m_num_frames_to_drain[stream_name];
 }
 
 hailo_status PipelineMultiplexer::signal_read_finish(multiplexer_ng_handle_t network_group_handle)
@@ -209,14 +273,19 @@ hailo_status PipelineMultiplexer::signal_read_finish(multiplexer_ng_handle_t net
     std::unique_lock<std::mutex> lock(m_reading_mutex);
     assert(contains(m_is_stream_reading, network_group_handle));
 
+    if (m_should_ng_stop[network_group_handle]) {
+        return HAILO_STREAM_ABORTED_BY_USER;
+    }
+
     m_read_streams_count++;
     if (m_read_streams_count == m_output_streams_count) {
         m_read_streams_count = 0;
-        m_order_queue.pop();
-
+        m_order_queue.pop_front();
         for (auto &name_flag_pair : m_is_stream_reading[network_group_handle]) {
             name_flag_pair.second = false;
         }
+
+        m_next_to_read_after_drain = INVALID_NETWORK_GROUP_HANDLE;
 
         lock.unlock();
         m_reading_cv.notify_all();
@@ -255,6 +324,9 @@ hailo_status PipelineMultiplexer::disable_network_group(multiplexer_ng_handle_t 
         }
 
         m_should_ng_stop[network_group_handle] = true;
+        if (m_currently_writing == network_group_handle) {
+            m_currently_writing = INVALID_NETWORK_GROUP_HANDLE;
+        }
 
         assert(contains(m_write_barriers, network_group_handle));
         m_write_barriers[network_group_handle]->terminate();

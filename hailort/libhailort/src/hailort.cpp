@@ -31,6 +31,7 @@
 #include "hailort_logger.hpp"
 #include "shared_resource_manager.hpp"
 #include "vdevice_internal.hpp"
+#include "tracer_macros.hpp"
 
 #include <chrono>
 
@@ -41,6 +42,7 @@ COMPAT__INITIALIZER(hailort__initialize_logger)
     // Init logger singleton if compiling only HailoRT
     (void) HailoRTLogger::get_instance();
     (void) SharedResourceManager<std::string, VDeviceBase>::get_instance();
+    TRACE(InitTrace);
 }
 
 hailo_status hailo_get_library_version(hailo_version_t *version)
@@ -1161,6 +1163,14 @@ hailo_status hailo_test_chip_memories(hailo_device device)
     return HAILO_SUCCESS;
 }
 
+hailo_status hailo_set_sleep_state(hailo_device device, hailo_sleep_state_t sleep_state)
+{
+    CHECK_ARG_NOT_NULL(device);
+    auto status = (reinterpret_cast<Device*>(device))->set_sleep_state(sleep_state);
+    CHECK_SUCCESS(status);
+    return HAILO_SUCCESS;
+}
+
 hailo_status hailo_create_input_transform_context(const hailo_stream_info_t *stream_info,
     const hailo_transform_params_t *transform_params, hailo_input_transform_context *transform_context)
 {
@@ -1907,33 +1917,6 @@ hailo_status hailo_get_physical_devices(hailo_vdevice vdevice, hailo_device *dev
 
     for (size_t i = 0; i < phys_devices_exp->size(); i++) {
         devices[i] = reinterpret_cast<hailo_device>(&(phys_devices_exp.value()[i].get()));
-    }
-
-    return HAILO_SUCCESS;
-}
-
-hailo_status hailo_get_physical_devices_infos(hailo_vdevice vdevice, hailo_pcie_device_info_t *devices_infos,
-    size_t *number_of_devices)
-{
-    CHECK_ARG_NOT_NULL(vdevice);
-    CHECK_ARG_NOT_NULL(devices_infos);
-    CHECK_ARG_NOT_NULL(number_of_devices);
-
-IGNORE_DEPRECATION_WARNINGS_BEGIN
-    auto phys_devices_infos = (reinterpret_cast<VDevice *>(vdevice))->get_physical_devices_infos();
-    CHECK_EXPECTED_AS_STATUS(phys_devices_infos);
-IGNORE_DEPRECATION_WARNINGS_END
-
-    if (*number_of_devices < phys_devices_infos->size()) {
-        LOGGER__ERROR("Can't return all physical devices infos. There are {} physical devices infos under the vdevice, but output array is of size {}",
-            phys_devices_infos->size(), *number_of_devices);
-        *number_of_devices = phys_devices_infos->size();
-        return HAILO_INSUFFICIENT_BUFFER;
-    }
-    *number_of_devices = phys_devices_infos->size();
-
-    for (size_t i = 0; i < phys_devices_infos->size(); i++) {
-        devices_infos[i] = phys_devices_infos.value()[i];
     }
 
     return HAILO_SUCCESS;

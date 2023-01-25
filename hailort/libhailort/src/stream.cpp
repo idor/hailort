@@ -12,7 +12,6 @@
 #include "hailo/hailort_common.hpp"
 #include "hailo/transform.hpp"
 #include "common/utils.hpp"
-#include "hef_internal.hpp"
 
 #include <sstream>
 
@@ -69,7 +68,7 @@ hailo_status OutputStream::read_nms(void *buffer, size_t offset, size_t size)
             for (;;) {
                 MemoryView buffer_view(static_cast<uint8_t*>(buffer) + offset, transfer_size);
                 auto expected_bytes_read = sync_read_raw_buffer(buffer_view);
-                if ((HAILO_STREAM_INTERNAL_ABORT == expected_bytes_read.status()) ||
+                if ((HAILO_STREAM_ABORTED_BY_USER == expected_bytes_read.status()) ||
                     ((HAILO_STREAM_NOT_ACTIVATED == expected_bytes_read.status()))) {
                     return expected_bytes_read.status();
                 }
