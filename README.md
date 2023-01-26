@@ -8,7 +8,7 @@
 </p>
 
 
-# HailoRT #
+# HailoRT this is my stuff #
 
 HailoRT is a light-weight and production-grade run-time library, which runs on the host processor, and
 implements a robust user-space run-time library (HailoRT Library) responsible for operating a Hailo device, with intuitive APIs in C/C++ for optimized performance.
